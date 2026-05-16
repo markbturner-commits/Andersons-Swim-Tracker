@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-navy: #0a2540;
+  --color-aqua: #06b6d4;
+  --color-ink: #374151;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Standards badge palette */
+.badge-B { @apply bg-std-b text-navy; }
+.badge-BB { @apply bg-std-bb text-white; }
+.badge-A { @apply bg-std-a text-white; }
+.badge-AA { @apply bg-std-aa text-white; }
+.badge-AAA { @apply bg-std-aaa text-white; }
+.badge-AAAA { @apply bg-std-aaaa text-white; }
