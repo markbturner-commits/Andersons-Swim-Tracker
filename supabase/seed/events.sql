@@ -1,0 +1,63 @@
+-- Common SCY / SCM / LCM events.
+-- Distance-stroke combinations seeded for all three courses.
+
+insert into public.events (distance_m, stroke, course) values
+  -- Freestyle
+  (50,   'FR', 'SCY'),
+  (100,  'FR', 'SCY'),
+  (200,  'FR', 'SCY'),
+  (500,  'FR', 'SCY'),
+  (1000, 'FR', 'SCY'),
+  (1650, 'FR', 'SCY'),
+  (50,   'FR', 'SCM'),
+  (100,  'FR', 'SCM'),
+  (200,  'FR', 'SCM'),
+  (400,  'FR', 'SCM'),
+  (800,  'FR', 'SCM'),
+  (1500, 'FR', 'SCM'),
+  (50,   'FR', 'LCM'),
+  (100,  'FR', 'LCM'),
+  (200,  'FR', 'LCM'),
+  (400,  'FR', 'LCM'),
+  (800,  'FR', 'LCM'),
+  (1500, 'FR', 'LCM'),
+  -- Backstroke
+  (50,  'BK', 'SCY'),
+  (100, 'BK', 'SCY'),
+  (200, 'BK', 'SCY'),
+  (50,  'BK', 'SCM'),
+  (100, 'BK', 'SCM'),
+  (200, 'BK', 'SCM'),
+  (50,  'BK', 'LCM'),
+  (100, 'BK', 'LCM'),
+  (200, 'BK', 'LCM'),
+  -- Breaststroke
+  (50,  'BR', 'SCY'),
+  (100, 'BR', 'SCY'),
+  (200, 'BR', 'SCY'),
+  (50,  'BR', 'SCM'),
+  (100, 'BR', 'SCM'),
+  (200, 'BR', 'SCM'),
+  (50,  'BR', 'LCM'),
+  (100, 'BR', 'LCM'),
+  (200, 'BR', 'LCM'),
+  -- Butterfly
+  (50,  'FL', 'SCY'),
+  (100, 'FL', 'SCY'),
+  (200, 'FL', 'SCY'),
+  (50,  'FL', 'SCM'),
+  (100, 'FL', 'SCM'),
+  (200, 'FL', 'SCM'),
+  (50,  'FL', 'LCM'),
+  (100, 'FL', 'LCM'),
+  (200, 'FL', 'LCM'),
+  -- Individual Medley
+  (100, 'IM', 'SCY'),
+  (200, 'IM', 'SCY'),
+  (400, 'IM', 'SCY'),
+  (100, 'IM', 'SCM'),
+  (200, 'IM', 'SCM'),
+  (400, 'IM', 'SCM'),
+  (200, 'IM', 'LCM'),
+  (400, 'IM', 'LCM')
+on conflict (distance_m, stroke, course) do nothing;
