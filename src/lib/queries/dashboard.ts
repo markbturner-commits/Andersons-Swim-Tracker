@@ -119,13 +119,13 @@ export async function getDashboardData(): Promise<DashboardData> {
     });
     const top = sorted[0];
     if (top.swimmer && top.meet && top.event) {
-      const lookup = await getStandardLookup(
-        top.age_at_meet,
-        top.swimmer.gender as Gender,
-        top.event.id,
-        top.event.course as Course,
-        top.time_ms,
-      );
+      const lookup = await getStandardLookup({
+        swimmerAge: top.age_at_meet,
+        gender: top.swimmer.gender as Gender,
+        eventId: top.event.id,
+        course: top.event.course as Course,
+        timeMs: top.time_ms,
+      });
       latest = {
         result: top,
         swimmer: top.swimmer,
@@ -141,13 +141,13 @@ export async function getDashboardData(): Promise<DashboardData> {
   let closestStandard: ClosestToNextStandard | null = null;
   for (const r of results) {
     if (!r.is_pr || !r.swimmer || !r.event) continue;
-    const lookup = await getStandardLookup(
-      r.age_at_meet,
-      r.swimmer.gender as Gender,
-      r.event.id,
-      r.event.course as Course,
-      r.time_ms,
-    );
+    const lookup = await getStandardLookup({
+      swimmerAge: r.age_at_meet,
+      gender: r.swimmer.gender as Gender,
+      eventId: r.event.id,
+      course: r.event.course as Course,
+      timeMs: r.time_ms,
+    });
     if (!lookup.next) continue;
     if (
       !closestStandard ||

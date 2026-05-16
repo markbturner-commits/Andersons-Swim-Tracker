@@ -18,6 +18,11 @@ function rankOf(level: StandardLevel): number {
   return STANDARD_ORDER.indexOf(level);
 }
 
+// Re-export pure rendering constants for callers that already import here.
+// Client components should import directly from "@/lib/standards-colors"
+// to avoid pulling in the server-only Supabase client.
+export { STANDARD_COLORS, standardColor } from "@/lib/standards-colors";
+
 export interface StandardLookupResult {
   current: { standard: StandardLevel; time_ms: number } | null;
   next: { standard: StandardLevel; time_ms: number; delta_ms: number } | null;

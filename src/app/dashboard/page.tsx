@@ -211,7 +211,7 @@ function LatestSwimCard({
         <span className="font-mono text-4xl md:text-5xl text-navy">
           {formatTime(latest.result.time_ms)}
         </span>
-        <StandardsBadge level={latest.lookup.current} />
+        <StandardsBadge level={latest.lookup.current?.standard ?? null} />
       </div>
       <p className="mt-2 text-sm text-ink">
         {eventLabel(latest.event.distance_m, latest.event.stroke, latest.event.course)}

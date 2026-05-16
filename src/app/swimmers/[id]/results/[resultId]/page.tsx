@@ -49,13 +49,13 @@ export default async function ResultDetailPage({ params }: PageProps) {
   if (!result || result.swimmer_id !== swimmerId) notFound();
   if (!result.swimmer || !result.event || !result.meet) notFound();
 
-  const lookup = await getStandardLookup(
-    result.age_at_meet,
-    result.swimmer.gender as Gender,
-    result.event.id,
-    result.event.course as Course,
-    result.time_ms,
-  );
+  const lookup = await getStandardLookup({
+    swimmerAge: result.age_at_meet,
+    gender: result.swimmer.gender as Gender,
+    eventId: result.event.id,
+    course: result.event.course as Course,
+    timeMs: result.time_ms,
+  });
 
   // Previous bests at this event before this meet.
   const { data: priorData } = await supabase
@@ -113,7 +113,7 @@ export default async function ResultDetailPage({ params }: PageProps) {
           <span className="font-mono text-5xl text-navy">
             {formatTime(result.time_ms)}
           </span>
-          <StandardsBadge level={lookup.current} />
+          <StandardsBadge level={lookup.current?.standard ?? null} />
           {result.is_pr && (
             <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">
               <Star className="h-3.5 w-3.5" aria-hidden />

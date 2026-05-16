@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { ProgressionChart, type ProgressionResult } from "./ProgressionChart";
-import { STANDARD_COLORS } from "@/lib/standards";
+import { STANDARD_COLORS } from "@/lib/standards-colors";
 
 // Recharts' ResponsiveContainer measures the parent element. In jsdom every
 // element reports 0×0 by default — patching getBoundingClientRect + a

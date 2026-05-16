@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   CartesianGrid,
   Line,
@@ -14,19 +14,21 @@ import {
 import { Star } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import type { Course, Gender, Result, StandardLevel } from "@/types/db";
-import { formatTime, eventLabel } from "@/lib/format";
-import { getStandardLookup, standardColor } from "@/lib/standards";
+import { formatTime } from "@/lib/format";
+import { standardColor } from "@/lib/standards-colors";
 
 export interface ProgressionResult extends Result {
   meet_start_date: string; // joined-in for chart x-axis
-  // Optional pre-computed standard; otherwise the chart will look it up.
+  // Server-precomputed standard for the dot color. null = no standard achieved
+  // / no standard table data for this age/gender/event.
   standard?: StandardLevel | null;
 }
 
 export interface ProgressionChartProps {
   results: ProgressionResult[]; // must be ordered by meet.start_date ASC
-  // Swimmer + event context required to compute standard color per dot.
   birthdate: string;
+  // Kept in the props for symmetry with detail screens; not used directly by
+  // the chart, since standards are precomputed server-side.
   gender: Gender;
   course: Course;
   eventId: number;
@@ -136,61 +138,39 @@ function ChartTooltip({ active, payload, label }: TooltipContentProps) {
 export function ProgressionChart({
   results,
   birthdate: _birthdate,
-  gender,
+  gender: _gender,
   course,
-  eventId,
+  eventId: _eventId,
   eventLabel: eventLabelOverride,
   distanceM,
   stroke,
   goalTimeMs = null,
 }: ProgressionChartProps) {
-  const [enriched, setEnriched] = useState<PreparedPoint[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // Look up standards in parallel; dots render gray until enrichment completes.
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    (async () => {
-      const out: PreparedPoint[] = await Promise.all(
-        results.map(async (r) => {
-          const standard =
-            r.standard !== undefined
-              ? r.standard
-              : (
-                  await getStandardLookup(
-                    r.age_at_meet,
-                    gender,
-                    eventId,
-                    course,
-                    r.time_ms,
-                  )
-                ).current;
-          return {
-            resultId: r.id,
-            date: r.meet_start_date,
-            timestamp: new Date(r.meet_start_date).getTime(),
-            time_ms: r.time_ms,
-            is_pr: r.is_pr,
-            standard,
-            age: r.age_at_meet,
-            place: r.place,
-          };
-        }),
-      );
-      if (!cancelled) {
-        setEnriched(out);
-        setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [results, gender, course, eventId]);
+  // Standards are precomputed server-side and passed in via `r.standard`.
+  // Missing values render with a neutral dot color.
+  const enriched: PreparedPoint[] = useMemo(
+    () =>
+      results.map((r) => ({
+        resultId: r.id,
+        date: r.meet_start_date,
+        timestamp: new Date(r.meet_start_date).getTime(),
+        time_ms: r.time_ms,
+        is_pr: r.is_pr,
+        standard: r.standard ?? null,
+        age: r.age_at_meet,
+        place: r.place,
+      })),
+    [results],
+  );
 
   const label = useMemo(() => {
     if (eventLabelOverride) return eventLabelOverride;
-    if (distanceM != null && stroke) return eventLabel(distanceM, stroke, course);
+    if (distanceM != null && stroke) {
+      // Inline event-label builder to avoid an extra import.
+      const strokeName = { FR: "Freestyle", BK: "Backstroke", BR: "Breaststroke", FL: "Butterfly", IM: "IM" }[stroke] ?? stroke;
+      const courseName = { SCY: "Yards", SCM: "SC Meters", LCM: "LC Meters" }[course] ?? course;
+      return `${distanceM} ${courseName} ${strokeName}`;
+    }
     return "Progression";
   }, [eventLabelOverride, distanceM, stroke, course]);
 
@@ -326,11 +306,6 @@ export function ProgressionChart({
           </LineChart>
         </ResponsiveContainer>
       </div>
-      {loading && (
-        <p className="mt-2 text-xs text-ink/60" aria-live="polite">
-          Calculating standards…
-        </p>
-      )}
     </div>
   );
 }

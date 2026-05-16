@@ -223,13 +223,13 @@ async function ProgressionTab({
 
   const prResult = eventResults.find((r) => r.is_pr);
   const lookup = prResult
-    ? await getStandardLookup(
-        prResult.age_at_meet,
-        swimmer.gender as Gender,
-        selectedEvent.id,
-        selectedEvent.course as Course,
-        prResult.time_ms,
-      )
+    ? await getStandardLookup({
+        swimmerAge: prResult.age_at_meet,
+        gender: swimmer.gender as Gender,
+        eventId: selectedEvent.id,
+        course: selectedEvent.course as Course,
+        timeMs: prResult.time_ms,
+      })
     : null;
   const activeGoal = goals.find(
     (g) => g.event_id === selectedEventId && g.achieved_at == null,
@@ -255,8 +255,8 @@ async function ProgressionTab({
             <Stat label="PR" value={formatTime(prResult.time_ms)} />
             <Stat
               label="Standard"
-              value={lookup?.current ?? "—"}
-              renderValue={() => <StandardsBadge level={lookup?.current ?? null} />}
+              value={lookup?.current?.standard ?? "—"}
+              renderValue={() => <StandardsBadge level={lookup?.current?.standard ?? null} />}
             />
             <Stat
               label="To next"
@@ -351,17 +351,17 @@ async function StandardsTab({
   for (const [eventId, r] of prByEvent) {
     const event = eventMap.get(eventId);
     if (!event) continue;
-    const lookup = await getStandardLookup(
-      r.age_at_meet,
-      swimmer.gender as Gender,
-      event.id,
-      event.course as Course,
-      r.time_ms,
-    );
+    const lookup = await getStandardLookup({
+      swimmerAge: r.age_at_meet,
+      gender: swimmer.gender as Gender,
+      eventId: event.id,
+      course: event.course as Course,
+      timeMs: r.time_ms,
+    });
     rows.push({
       event,
       timeMs: r.time_ms,
-      current: lookup.current,
+      current: lookup.current?.standard ?? null,
       next: lookup.next,
     });
   }
