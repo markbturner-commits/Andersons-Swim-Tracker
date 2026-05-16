@@ -1,6 +1,7 @@
 node_modules
 .next
 tsconfig.tsbuildinfo
+.claude/worktrees/
 out
 dist
 build
