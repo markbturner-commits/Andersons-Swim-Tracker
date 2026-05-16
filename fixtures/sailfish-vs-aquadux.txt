@@ -1,0 +1,68 @@
+HY-TEK's MEET MANAGER 8.0 - 2:14 PM 2/8/2026  Page 1
+Sailfish vs Aquadux 2.8.26
+Results - Sailfish vs Aquadux 2/8/26
+
+Event 1  Girls 8 & Under 25 Yard Freestyle
+Name                      Age  Team    Finals Time   Points
+1  Allen, Emma             7    SAIL    18.42         6
+2  Brooks, Olivia          8    AQUA    19.11         4
+3  Carter, Ava             7    SAIL    20.05         3
+
+Event 2  Boys 8 & Under 25 Yard Freestyle
+Name                      Age  Team    Finals Time   Points
+1  Davis, Noah             8    AQUA    17.88         6
+2  Evans, Liam             7    SAIL    18.62         4
+---  Foster, Mason         8    AQUA    DQ
+
+Event 3  Mixed 9-10 100 Yard Medley Relay
+Team                      Relay        Finals Time   Points
+1  AQUA  A                              1:18.45       10
+   1) Turner, Anderson 9    2) Brooks, Olivia 8
+   3) Davis, Noah 8         4) Hill, Sophia 10
+2  SAIL  A                              1:21.99       4
+   1) Garcia, Mateo 10      2) Hayes, Chloe 9
+   3) Irving, Wyatt 10      4) Jones, Lily 9
+
+Event 5  Girls 9-10 50 Yard Backstroke
+Name                      Age  Team    Finals Time   Points
+1  Hill, Sophia            10   AQUA    41.22         6
+2  Hayes, Chloe            9    SAIL    44.78         4
+3  Brooks, Olivia          8    AQUA    x46.10
+
+Event 7  Boys 9-10 100 Yard Individual Medley
+Name                      Age  Team    Finals Time   Points
+1  Turner, Anderson        9    AQUA    1:32.04       6
+2  Garcia, Mateo           10   SAIL    1:35.88       4
+3  Davis, Noah             8    AQUA    x1:41.55
+
+Event 9  Girls 11-12 50 Yard Butterfly
+Name                      Age  Team    Finals Time   Points
+1  King, Madison           12   AQUA    32.45         6
+2  Lopez, Isabella         11   SAIL    34.12         4
+
+Event 11  Boys 11-12 50 Yard Breaststroke
+Name                      Age  Team    Finals Time   Points
+1  Morgan, Ethan           12   SAIL    36.99         6
+2  Nelson, Lucas           11   AQUA    38.27         4
+
+Event 15  Boys 9-10 50 Yard Freestyle
+Name                      Age  Team    Finals Time   Points
+1  Garcia, Mateo           10   SAIL    42.18         6
+2  Turner, Anderson        9    AQUA    44.56         3
+3  Irving, Wyatt           10   SAIL    46.02         2
+
+Event 16  Girls 9-10 50 Yard Freestyle
+Name                      Age  Team    Finals Time   Points
+1  Hill, Sophia            10   AQUA    39.88         6
+2  Hayes, Chloe            9    SAIL    42.55         4
+
+Event 20  Mixed 11-12 200 Yard Freestyle Relay
+Team                      Relay        Finals Time   Points
+1  SAIL  A                              2:08.22       10
+   1) Lopez, Isabella 11    2) Morgan, Ethan 12
+   3) King, Madison 12      4) Nelson, Lucas 11
+
+# TODO: Replace this text proxy with the real Sailfish vs Aquadux 2.8.26 PDF
+#       checked into fixtures/sailfish-vs-aquadux.pdf so the full pdf-parse
+#       + 2-column extraction pipeline can be E2E-tested. The text above mirrors
+#       what the parser sees after pagerender re-orders 2-column pages.
