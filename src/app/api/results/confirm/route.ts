@@ -21,6 +21,7 @@
 // All writes use the user-scoped Supabase client; RLS is the security boundary.
 
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { ageOnDate } from "@/lib/format";
 import { markUploadConfirmed } from "@/lib/queries/pdf";
@@ -33,24 +34,35 @@ import {
 
 export const runtime = "nodejs";
 
-interface RequestBody {
-  uploadId: string;
-  swimmerId: string;
-  meet: {
-    name: string;
-    date: string; // ISO YYYY-MM-DD
-    location?: string | null;
-    course: Course;
-  };
-  results: Array<{
-    event_key: string;
-    time_ms: number;
-    place?: number | null;
-    exhibition: boolean;
-    splits?: SplitLap[] | null;
-    action: "NEW" | "SKIP" | "OVERWRITE";
-  }>;
-}
+const splitLapSchema = z.object({
+  lap: z.number().int().nonnegative(),
+  time_ms: z.number().int().positive(),
+});
+
+const requestSchema = z.object({
+  uploadId: z.string().min(1),
+  swimmerId: z.string().uuid(),
+  meet: z.object({
+    name: z.string().min(1).max(200),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+    location: z.string().max(200).nullish(),
+    course: z.enum(["SCY", "SCM", "LCM"]),
+  }),
+  results: z
+    .array(
+      z.object({
+        event_key: z.string().min(1).max(40),
+        time_ms: z.number().int().positive(),
+        place: z.number().int().positive().nullish(),
+        exhibition: z.boolean(),
+        splits: z.array(splitLapSchema).max(80).nullish(),
+        action: z.enum(["NEW", "SKIP", "OVERWRITE"]),
+      }),
+    )
+    .max(1000),
+});
+
+type RequestBody = z.infer<typeof requestSchema>;
 
 interface SuccessResponse {
   meetId: string;
@@ -78,18 +90,23 @@ export async function POST(
   if (authErr || !user) return jsonErr("UNAUTHORIZED", "Please sign in.", 401);
 
   // ----- Validate body -----
-  let body: RequestBody;
+  let parsedBody: unknown;
   try {
-    body = (await req.json()) as RequestBody;
+    parsedBody = await req.json();
   } catch {
     return jsonErr("BAD_JSON", "Body wasn't valid JSON.", 400);
   }
-  if (!body.uploadId || !body.swimmerId || !body.meet || !Array.isArray(body.results)) {
-    return jsonErr("BAD_REQUEST", "Missing required fields.", 400);
+  const validation = requestSchema.safeParse(parsedBody);
+  if (!validation.success) {
+    const first = validation.error.errors[0];
+    const path = first.path.join(".");
+    return jsonErr(
+      "BAD_REQUEST",
+      `Invalid ${path || "request"}: ${first.message}`,
+      400,
+    );
   }
-  if (!body.meet.name || !body.meet.date) {
-    return jsonErr("BAD_REQUEST", "Meet name and date are required.", 400);
-  }
+  const body: RequestBody = validation.data;
 
   // ----- Load swimmer (RLS enforces ownership) -----
   const { data: swimmerRow, error: swimErr } = await supabase

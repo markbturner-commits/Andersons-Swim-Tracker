@@ -109,6 +109,22 @@ export async function POST(req: NextRequest): Promise<NextResponse<SuccessRespon
   // ----- Read into Buffer -----
   const arrayBuf = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuf);
+
+  // Magic-byte check: real PDFs start with "%PDF" (0x25 50 44 46). The earlier
+  // file.type check trusts the browser-supplied MIME, so a renamed .exe could
+  // pass it. Reject anything that doesn't start with the PDF signature before
+  // we waste a Storage round-trip on it.
+  if (
+    buffer.length < 4 ||
+    buffer[0] !== 0x25 ||
+    buffer[1] !== 0x50 ||
+    buffer[2] !== 0x44 ||
+    buffer[3] !== 0x46
+  ) {
+    const err = new FileWrongType("not-a-pdf");
+    return NextResponse.json(errBody(err), { status: 415 });
+  }
+
   const hash = sha256(buffer);
 
   // ----- Duplicate detection -----
