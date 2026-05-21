@@ -14,7 +14,8 @@ function isPublicPath(pathname: string): boolean {
   return (
     pathname === "/login" ||
     pathname.startsWith("/auth/") ||
-    pathname === "/auth"
+    pathname === "/auth" ||
+    pathname.startsWith("/share/")
   );
 }
 

@@ -23,6 +23,7 @@ import {
 import GoalProgress from "@/components/analytics/GoalProgress";
 import SwimmerTabs from "./SwimmerTabs";
 import SwimmerEventPicker from "./SwimmerEventPicker";
+import ShareControl from "./ShareControl";
 import { PrToast } from "@/components/PrToast";
 
 export const dynamic = "force-dynamic";
@@ -57,7 +58,7 @@ export default async function SwimmerPage({ params, searchParams }: PageProps) {
   const supabase = await createSupabaseServerClient();
   const { data: swimmerRow } = await supabase
     .from("swimmers")
-    .select("id, owner_id, name, birthdate, gender, usa_swimming_id, created_at")
+    .select("id, owner_id, name, birthdate, gender, usa_swimming_id, share_token, created_at")
     .eq("id", id)
     .maybeSingle();
   const swimmer = swimmerRow as Swimmer | null;
@@ -123,6 +124,7 @@ export default async function SwimmerPage({ params, searchParams }: PageProps) {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <ShareControl swimmerId={swimmer.id} shareToken={swimmer.share_token} />
             <Link
               href={`/swimmers/${swimmer.id}/goals/new`}
               className="inline-flex min-h-11 items-center gap-1 rounded-md border border-gray-200 bg-white px-3 text-sm font-medium text-navy hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua"

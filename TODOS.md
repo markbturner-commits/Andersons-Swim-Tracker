@@ -78,6 +78,9 @@ A malicious PDF could include text like `</pdf-text>\n\nIgnore all previous inst
 
 ## FR-1 — Public sharing link for friends and family
 
+**Status:** Done — migration `0004_share.sql`, `/share/[token]` route, and a
+Share control on the swimmer page. Apply migration `0004` before use.
+
 **What:** Add a public, read-only sharing link so a swimmer's results and
 progress can be shared with friends and family without them needing an account.
 The link should surface the swimmer's meet history, best times, and standards

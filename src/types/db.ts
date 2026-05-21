@@ -22,6 +22,7 @@ export interface Swimmer {
   birthdate: string; // ISO date
   gender: Gender;
   usa_swimming_id: string | null;
+  share_token: string | null; // opaque public-share token; NULL = not shared
   created_at: string;
 }
 
@@ -119,6 +120,34 @@ export interface ParsedMeetPayload {
     place: number | null;
     exhibition: boolean;
   }>;
+}
+
+// Public share-link payload — shape returned by the `get_shared_swimmer` RPC.
+export interface SharedResult {
+  id: string;
+  swimmer_id: string;
+  meet_id: string;
+  event_id: number;
+  time_ms: number;
+  place: number | null;
+  age_at_meet: number;
+  is_pr: boolean;
+  dq: boolean;
+  exhibition: boolean;
+  meet: {
+    id: string;
+    name: string;
+    start_date: string;
+    end_date: string | null;
+    course: Course;
+    location: string | null;
+  };
+  event: SwimEvent;
+}
+
+export interface SharedSwimmerPayload {
+  swimmer: Pick<Swimmer, "id" | "name" | "birthdate" | "gender">;
+  results: SharedResult[];
 }
 
 // Event key encoding: "{distance}-{stroke}-{course}" e.g. "50-FR-SCY"
