@@ -16,7 +16,7 @@ export async function getSwimmersForUser(
   const c = await client(supabase);
   const { data, error } = await c
     .from("swimmers")
-    .select("id, owner_id, name, birthdate, gender, usa_swimming_id, created_at")
+    .select("id, owner_id, name, birthdate, gender, usa_swimming_id, share_token, created_at")
     .order("name", { ascending: true });
   if (error) throw error;
   return (data ?? []) as Swimmer[];
@@ -30,7 +30,7 @@ export async function getSwimmerById(
   const c = await client(supabase);
   const { data, error } = await c
     .from("swimmers")
-    .select("id, owner_id, name, birthdate, gender, usa_swimming_id, created_at")
+    .select("id, owner_id, name, birthdate, gender, usa_swimming_id, share_token, created_at")
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
@@ -60,7 +60,7 @@ export async function createSwimmer(
       gender: input.gender,
       usa_swimming_id: input.usa_swimming_id ?? null,
     })
-    .select("id, owner_id, name, birthdate, gender, usa_swimming_id, created_at")
+    .select("id, owner_id, name, birthdate, gender, usa_swimming_id, share_token, created_at")
     .single();
   if (error) throw error;
   return data as Swimmer;

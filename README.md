@@ -34,6 +34,7 @@ src/
     results/new/        Manual entry form
     login/              Magic-link sign-in
     auth/callback/      Supabase auth callback
+    share/[token]/      Public read-only swimmer link (no sign-in)
   components/
     analytics/          ProgressionChart, StandardsBadge, SplitChart, MeetSummary, GoalProgress
     forms/              Reusable form primitives
