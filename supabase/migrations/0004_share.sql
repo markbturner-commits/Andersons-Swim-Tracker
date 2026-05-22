@@ -12,8 +12,12 @@
 -- public page can render standards badges (published reference data, no user
 -- content).
 --
--- Apply with the migration tooling (`supabase db push` / `supabase migration
--- up`), not by pasting into the SQL Editor.
+-- Like 0003_pr_trigger.sql, the function is written in PL/pgSQL with NO table
+-- aliases — it resolves the swimmer id into a local variable and uses
+-- single-table correlated subqueries. That keeps every identifier clear of the
+-- `alias.column` form the SQL-Editor chat-paste path mangles into
+-- `<alias.column>`, so this file is safe both to `supabase db push` and to
+-- paste directly.
 
 -- ---------------------------------------------------------------------------
 -- swimmers.share_token — opaque, unique, nullable (NULL = not shared)
@@ -45,57 +49,80 @@ create policy "time_standards_select_anon" on public.time_standards
 
 create or replace function public.get_shared_swimmer(p_token uuid)
 returns jsonb
-language sql
+language plpgsql
 security definer
 set search_path = public
 stable
-as $$
+as $func$
+declare
+  v_swimmer_id uuid;
+  v_payload jsonb;
+begin
+  select id into v_swimmer_id
+    from swimmers
+   where share_token = p_token;
+
+  if v_swimmer_id is null then
+    return null;
+  end if;
+
   select jsonb_build_object(
-    'swimmer', jsonb_build_object(
-      'id', s.id,
-      'name', s.name,
-      'birthdate', s.birthdate,
-      'gender', s.gender
+    'swimmer', (
+      select jsonb_build_object(
+        'id', id,
+        'name', name,
+        'birthdate', birthdate,
+        'gender', gender
+      )
+      from swimmers
+      where id = v_swimmer_id
     ),
     'results', coalesce((
       select jsonb_agg(
         jsonb_build_object(
-          'id', r.id,
-          'swimmer_id', r.swimmer_id,
-          'meet_id', r.meet_id,
-          'event_id', r.event_id,
-          'time_ms', r.time_ms,
-          'place', r.place,
-          'age_at_meet', r.age_at_meet,
-          'is_pr', r.is_pr,
-          'dq', r.dq,
-          'exhibition', r.exhibition,
-          'meet', jsonb_build_object(
-            'id', m.id,
-            'name', m.name,
-            'start_date', m.start_date,
-            'end_date', m.end_date,
-            'course', m.course,
-            'location', m.location
+          'id', id,
+          'swimmer_id', swimmer_id,
+          'meet_id', meet_id,
+          'event_id', event_id,
+          'time_ms', time_ms,
+          'place', place,
+          'age_at_meet', age_at_meet,
+          'is_pr', is_pr,
+          'dq', dq,
+          'exhibition', exhibition,
+          'meet', (
+            select jsonb_build_object(
+              'id', id,
+              'name', name,
+              'start_date', start_date,
+              'end_date', end_date,
+              'course', course,
+              'location', location
+            )
+            from meets
+            where id = meet_id
           ),
-          'event', jsonb_build_object(
-            'id', e.id,
-            'distance_m', e.distance_m,
-            'stroke', e.stroke,
-            'course', e.course
+          'event', (
+            select jsonb_build_object(
+              'id', id,
+              'distance_m', distance_m,
+              'stroke', stroke,
+              'course', course
+            )
+            from events
+            where id = event_id
           )
         )
-        order by m.start_date desc
       )
-      from public.results r
-      join public.meets m on m.id = r.meet_id
-      join public.events e on e.id = r.event_id
-      where r.swimmer_id = s.id and not r.dq
+      from results
+      where swimmer_id = v_swimmer_id and not dq
     ), '[]'::jsonb)
   )
-  from public.swimmers s
-  where s.share_token = p_token;
-$$;
+  into v_payload;
+
+  return v_payload;
+end;
+$func$;
 
 revoke all on function public.get_shared_swimmer(uuid) from public;
 grant execute on function public.get_shared_swimmer(uuid) to anon, authenticated;
