@@ -2,6 +2,7 @@ node_modules
 .next
 tsconfig.tsbuildinfo
 .claude/worktrees/
+.claude/logs/
 out
 dist
 build
