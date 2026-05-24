@@ -9,12 +9,12 @@ import {
   ProgressionChart,
   type ProgressionResult,
 } from "@/components/analytics/ProgressionChart";
+import { MultiEventProgressionChart } from "@/components/analytics/MultiEventProgressionChart";
 import {
-  MultiEventProgressionChart,
   buildEventSeries,
   colorForIndex,
   type MultiEventSeries,
-} from "@/components/analytics/MultiEventProgressionChart";
+} from "@/components/analytics/multi-event-series";
 import type { Course, Gender, SharedResult, StandardLevel, SwimEvent } from "@/types/db";
 
 export const dynamic = "force-dynamic";
