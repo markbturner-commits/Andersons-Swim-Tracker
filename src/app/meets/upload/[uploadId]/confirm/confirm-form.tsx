@@ -8,9 +8,10 @@
 // - Per-row status badge: NEW / DUPLICATE / CONFLICT.
 // - Save → POST /api/results/confirm → redirect to /meets/[meetId].
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { eventLabel, formatTime, parseTime } from "@/lib/format";
+import { matchParsedSwimmer } from "@/lib/swimmer-match";
 import {
   parseEventKey,
   type Course,
@@ -57,9 +58,48 @@ export function ConfirmForm({ uploadId, payload, swimmers, fallbackTriggered }: 
   const [pickedParsedName, setPickedParsedName] = useState<string | null>(
     payload.swimmers[0]?.name ?? null,
   );
+
+  // Attempt to auto-match the initially-selected parsed swimmer to a saved
+  // one (name + age must agree). Used to seed pickedSwimmerId so the common
+  // case requires zero clicks.
+  const initialMatch = useMemo(() => {
+    const first = payload.swimmers[0];
+    if (!first) return { confidence: "none" as const };
+    return matchParsedSwimmer(first, swimmers, payload.meet.start_date);
+  }, [payload.swimmers, swimmers, payload.meet.start_date]);
+
   const [pickedSwimmerId, setPickedSwimmerId] = useState<string | null>(
-    swimmers[0]?.id ?? null,
+    initialMatch.confidence === "exact"
+      ? initialMatch.swimmer.id
+      : (swimmers[0]?.id ?? null),
   );
+
+  // Re-run matching whenever the user changes which PDF name is "theirs".
+  const currentMatch = useMemo(() => {
+    const parsed = payload.swimmers.find((s) => s.name === pickedParsedName);
+    if (!parsed) return { confidence: "none" as const };
+    return matchParsedSwimmer(parsed, swimmers, meetDate);
+  }, [pickedParsedName, payload.swimmers, swimmers, meetDate]);
+
+  // "Matched" mode collapses the picker into a banner. The user can click
+  // Change to reveal the full picker (which also stays visible whenever the
+  // match isn't confident).
+  const [pickerOverride, setPickerOverride] = useState(false);
+
+  // When the parsed-swimmer selection changes and a new exact match is
+  // available, follow it — keeps the banner showing instead of dropping
+  // back into picker mode.
+  useEffect(() => {
+    if (pickerOverride) return;
+    if (currentMatch.confidence === "exact" && currentMatch.swimmer.id !== pickedSwimmerId) {
+      setPickedSwimmerId(currentMatch.swimmer.id);
+    }
+  }, [currentMatch, pickedSwimmerId, pickerOverride]);
+
+  const matchedMode =
+    currentMatch.confidence === "exact" &&
+    !pickerOverride &&
+    currentMatch.swimmer.id === pickedSwimmerId;
 
   // Results for the picked parsed-name (filter relays out — they can't map to
   // the events catalog yet).
@@ -238,43 +278,68 @@ export function ConfirmForm({ uploadId, payload, swimmers, fallbackTriggered }: 
         <h2 className="font-display text-lg text-navy">Which swimmer is yours?</h2>
         {payload.swimmers.length === 0 ? (
           <p className="mt-2 text-sm text-ink">No swimmers detected in the PDF.</p>
-        ) : (
-          <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {payload.swimmers.map((s) => (
-              <li key={`${s.name}|${s.age}|${s.team}`}>
-                <button
-                  type="button"
-                  onClick={() => setPickedParsedName(s.name)}
-                  className={`min-h-11 w-full rounded-xl border px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua ${
-                    pickedParsedName === s.name
-                      ? "border-navy bg-navy/5 font-medium text-navy"
-                      : "border-gray-200 text-ink"
-                  }`}
-                >
-                  {s.name} <span className="text-ink/60">· age {s.age} · {s.team}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="mt-4 border-t border-gray-200 pt-4">
-          <label className="block text-sm">
-            <span className="text-ink/80">Save under your swimmer:</span>
-            <select
-              value={pickedSwimmerId ?? ""}
-              onChange={(e) => setPickedSwimmerId(e.target.value || null)}
-              className="mt-1 block w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+        ) : matchedMode ? (
+          <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-aqua/40 bg-aqua/5 p-3 text-sm">
+            <span className="text-ink">
+              Matched <span className="font-medium text-navy">{pickedParsedName}</span>{" "}
+              to your swimmer{" "}
+              <span className="font-medium text-navy">
+                {currentMatch.confidence === "exact"
+                  ? currentMatch.swimmer.name
+                  : ""}
+              </span>
+              .
+            </span>
+            <button
+              type="button"
+              onClick={() => setPickerOverride(true)}
+              className="ml-auto inline-flex min-h-9 items-center rounded-lg border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-ink"
             >
-              <option value="">— pick one —</option>
-              {swimmers.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} (born {s.birthdate})
-                </option>
+              Change
+            </button>
+          </div>
+        ) : (
+          <>
+            <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {payload.swimmers.map((s) => (
+                <li key={`${s.name}|${s.age}|${s.team}`}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPickedParsedName(s.name);
+                      setPickerOverride(false);
+                    }}
+                    className={`min-h-11 w-full rounded-xl border px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua ${
+                      pickedParsedName === s.name
+                        ? "border-navy bg-navy/5 font-medium text-navy"
+                        : "border-gray-200 text-ink"
+                    }`}
+                  >
+                    {s.name} <span className="text-ink/60">· age {s.age} · {s.team}</span>
+                  </button>
+                </li>
               ))}
-            </select>
-          </label>
-        </div>
+            </ul>
+
+            <div className="mt-4 border-t border-gray-200 pt-4">
+              <label className="block text-sm">
+                <span className="text-ink/80">Save under your swimmer:</span>
+                <select
+                  value={pickedSwimmerId ?? ""}
+                  onChange={(e) => setPickedSwimmerId(e.target.value || null)}
+                  className="mt-1 block w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+                >
+                  <option value="">— pick one —</option>
+                  {swimmers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} (born {s.birthdate})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </>
+        )}
 
         <div className="mt-4 flex flex-wrap gap-3">
           <button
