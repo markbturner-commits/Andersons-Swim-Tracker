@@ -152,3 +152,76 @@ export async function getUpload(
   }
   return (data as PdfUpload | null) ?? null;
 }
+
+/**
+ * Shape returned by listPendingUploads — the minimum needed to render the
+ * "Awaiting confirmation" panel on /meets/upload without dragging the full
+ * parsed_payload through every page render.
+ */
+export interface PendingUploadRow {
+  id: string;
+  parse_status: ParseStatus;
+  created_at: string;
+  meet_name: string | null;
+  error: string | null;
+}
+
+/**
+ * List the current user's pdf_uploads that still need user attention —
+ * pending (parser running), parsed (waiting for confirm), or failed (needs
+ * triage). Capped at 7 days so a graveyard of stale rows doesn't crowd the
+ * panel.
+ *
+ * RLS already scopes to the uploader; no explicit user filter needed.
+ */
+export async function listPendingUploads(
+  supabase: SupabaseClient,
+): Promise<PendingUploadRow[]> {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("pdf_uploads")
+    .select("id, parse_status, created_at, parsed_payload, error")
+    .in("parse_status", ["pending", "parsed", "failed"])
+    .gt("created_at", since)
+    .order("created_at", { ascending: false });
+  if (error) {
+    throw new Error(`listPendingUploads failed: ${error.message}`);
+  }
+  type Row = {
+    id: string;
+    parse_status: ParseStatus;
+    created_at: string;
+    parsed_payload: ParsedMeetPayload | null;
+    error: string | null;
+  };
+  return ((data ?? []) as Row[]).map((r) => ({
+    id: r.id,
+    parse_status: r.parse_status,
+    created_at: r.created_at,
+    meet_name: r.parsed_payload?.meet?.name ?? null,
+    error: r.error,
+  }));
+}
+
+/**
+ * Count uploads that still need to be confirmed, excluding the one we just
+ * confirmed. Used by /api/results/confirm to decide whether to bounce the
+ * user back to /meets/upload or send them straight to the saved meet.
+ *
+ * Failed uploads are intentionally NOT counted — a bad sibling shouldn't
+ * redirect the user away from a successful save.
+ */
+export async function countOtherPending(
+  supabase: SupabaseClient,
+  excludeUploadId: string,
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("pdf_uploads")
+    .select("id", { count: "exact", head: true })
+    .in("parse_status", ["pending", "parsed"])
+    .neq("id", excludeUploadId);
+  if (error) {
+    throw new Error(`countOtherPending failed: ${error.message}`);
+  }
+  return count ?? 0;
+}

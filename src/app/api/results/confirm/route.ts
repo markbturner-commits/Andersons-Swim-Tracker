@@ -24,7 +24,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { ageOnDate } from "@/lib/format";
-import { markUploadConfirmed } from "@/lib/queries/pdf";
+import { countOtherPending, markUploadConfirmed } from "@/lib/queries/pdf";
 import {
   parseEventKey,
   type Course,
@@ -69,6 +69,11 @@ interface SuccessResponse {
   insertedCount: number;
   skippedCount: number;
   overwroteCount: number;
+  // True when other pdf_uploads rows for this user are still pending/parsed
+  // (excluding the one just confirmed). The confirm form uses this to decide
+  // whether to bounce the user back to /meets/upload or send them to the
+  // saved meet's detail page.
+  hasOtherPending: boolean;
 }
 
 interface ErrorResponse {
@@ -248,6 +253,17 @@ export async function POST(
     }
   }
 
+  // ----- Count other pending uploads BEFORE marking this one confirmed.
+  // The filter excludes body.uploadId, so order doesn't change correctness;
+  // doing it first keeps the count valid even if markUploadConfirmed below
+  // silently fails (it's wrapped in try/catch).
+  let hasOtherPending = false;
+  try {
+    hasOtherPending = (await countOtherPending(supabase, body.uploadId)) > 0;
+  } catch {
+    // Non-fatal — the redirect just defaults to /meets/{meetId}.
+  }
+
   // ----- Mark upload confirmed (best-effort) -----
   try {
     await markUploadConfirmed(supabase, body.uploadId, meetId!);
@@ -260,5 +276,6 @@ export async function POST(
     insertedCount: inserted,
     skippedCount: skipped,
     overwroteCount: overwrote,
+    hasOtherPending,
   });
 }

@@ -214,7 +214,18 @@ export function ConfirmForm({ uploadId, payload, swimmers, fallbackTriggered }: 
         setSaveError(json.error?.userMessage ?? "Save failed");
         return;
       }
-      router.push(`/meets/${json.meetId}`);
+      // If other uploads still need confirming, return to /meets/upload so
+      // the user can pick the next one without re-uploading. Otherwise go
+      // straight to the saved meet's detail page.
+      if (json.hasOtherPending) {
+        const params = new URLSearchParams({
+          saved: meetName,
+          meetId: json.meetId,
+        });
+        router.push(`/meets/upload?${params.toString()}`);
+      } else {
+        router.push(`/meets/${json.meetId}`);
+      }
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "Save failed");
     } finally {
