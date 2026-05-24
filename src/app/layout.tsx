@@ -5,6 +5,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { OfflineSyncer } from "@/components/OfflineSyncer";
+import { OutboxDrainer } from "@/components/OutboxDrainer";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
@@ -72,6 +73,7 @@ export default async function RootLayout({
         {showHeader && <SiteHeader userEmail={userEmail} />}
         <div className="flex-1">{children}</div>
         {showHeader && <OfflineSyncer />}
+        {showHeader && <OutboxDrainer />}
         <ServiceWorkerRegistrar />
       </body>
     </html>
