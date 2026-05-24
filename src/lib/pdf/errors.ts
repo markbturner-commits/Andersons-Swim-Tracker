@@ -77,12 +77,16 @@ export class LLMRateLimited extends PdfPipelineError {
 
 export class DuplicateFile extends PdfPipelineError {
   readonly uploadId: string;
-  constructor(uploadId: string) {
+  readonly hasParsedPayload: boolean;
+  constructor(uploadId: string, hasParsedPayload = false) {
     super(
       "DUPLICATE_FILE",
-      "You've already uploaded this exact PDF. Showing your prior parse results.",
+      hasParsedPayload
+        ? "You've already uploaded this exact PDF. Overwrite to re-parse, or open the prior upload."
+        : "You've already uploaded this exact PDF, but it hasn't been confirmed. Overwrite to re-parse.",
     );
     this.uploadId = uploadId;
+    this.hasParsedPayload = hasParsedPayload;
   }
 }
 

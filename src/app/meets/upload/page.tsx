@@ -18,6 +18,7 @@ interface UploadError {
   code: string;
   userMessage: string;
   uploadId?: string;
+  hasParsedPayload?: boolean;
 }
 
 type ItemStatus = "queued" | "uploading" | "success" | "error";
@@ -86,15 +87,19 @@ function statusError(status: number): UploadError {
   return { code: `HTTP_${status}`, userMessage: `Upload failed (HTTP ${status}).` };
 }
 
-async function uploadOne(file: File): Promise<
+async function uploadOne(
+  file: File,
+  opts: { overwrite?: boolean } = {},
+): Promise<
   | { ok: true; uploadId: string; fallbackUsed: boolean; duplicate: boolean }
   | { ok: false; error: UploadError }
 > {
   const fd = new FormData();
   fd.append("file", file);
+  const endpoint = opts.overwrite ? "/api/parse-pdf?overwrite=1" : "/api/parse-pdf";
   let res: Response;
   try {
-    res = await fetch("/api/parse-pdf", { method: "POST", body: fd });
+    res = await fetch(endpoint, { method: "POST", body: fd });
   } catch (e) {
     return { ok: false, error: networkError(e) };
   }
@@ -138,7 +143,7 @@ export default function UploadPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const processQueue = useCallback(
-    async (queued: UploadItem[]) => {
+    async (queued: UploadItem[], opts: { overwrite?: boolean } = {}) => {
       setRunning(true);
       let successCount = 0;
       let lastSuccessUploadId: string | null = null;
@@ -147,7 +152,7 @@ export default function UploadPage() {
         setItems((prev) =>
           prev.map((p) => (p.id === item.id ? { ...p, status: "uploading" } : p)),
         );
-        const result = await uploadOne(item.file);
+        const result = await uploadOne(item.file, opts);
         if (result.ok) {
           successCount += 1;
           lastSuccessUploadId = result.uploadId;
@@ -211,6 +216,31 @@ export default function UploadPage() {
       );
       const target = items.find((i) => i.id === id);
       if (target) void processQueue([{ ...target, status: "queued", error: undefined }]);
+    },
+    [items, processQueue],
+  );
+
+  const overwriteItem = useCallback(
+    (id: string) => {
+      const target = items.find((i) => i.id === id);
+      if (!target) return;
+      setItems((prev) =>
+        prev.map((p) =>
+          p.id === id
+            ? {
+                ...p,
+                status: "queued",
+                error: undefined,
+                duplicate: false,
+                uploadId: undefined,
+              }
+            : p,
+        ),
+      );
+      void processQueue(
+        [{ ...target, status: "queued", error: undefined, duplicate: false, uploadId: undefined }],
+        { overwrite: true },
+      );
     },
     [items, processQueue],
   );
@@ -313,15 +343,42 @@ export default function UploadPage() {
                     </div>
                     <div className="mt-0.5 text-ink/60">code: {item.error.code}</div>
                     <div className="mt-2 flex flex-wrap gap-3">
-                      <button
-                        type="button"
-                        onClick={() => retryItem(item.id)}
-                        disabled={running}
-                        className="text-aqua underline disabled:opacity-50"
-                      >
-                        Retry
-                      </button>
-                      {item.error.uploadId && (
+                      {item.error.code === "DUPLICATE_FILE" ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                "Overwrite the prior upload and re-parse this PDF? Any meet already saved from it is not affected.",
+                              )
+                            ) {
+                              overwriteItem(item.id);
+                            }
+                          }}
+                          disabled={running}
+                          className="text-aqua underline disabled:opacity-50"
+                        >
+                          Overwrite &amp; re-parse
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => retryItem(item.id)}
+                          disabled={running}
+                          className="text-aqua underline disabled:opacity-50"
+                        >
+                          Retry
+                        </button>
+                      )}
+                      {item.error.uploadId && item.error.code === "DUPLICATE_FILE" && (
+                        <a
+                          href={`/meets/upload/${item.error.uploadId}/confirm`}
+                          className="text-aqua underline"
+                        >
+                          Open prior upload
+                        </a>
+                      )}
+                      {item.error.uploadId && item.error.code !== "DUPLICATE_FILE" && (
                         <a
                           href={`/meets/upload/${item.error.uploadId}/debug`}
                           className="text-aqua underline"
@@ -348,6 +405,24 @@ export default function UploadPage() {
                     >
                       Confirm results →
                     </a>
+                    {item.duplicate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              "Overwrite the prior upload and re-parse this PDF? Any meet already saved from it is not affected.",
+                            )
+                          ) {
+                            overwriteItem(item.id);
+                          }
+                        }}
+                        disabled={running}
+                        className="text-aqua underline disabled:opacity-50"
+                      >
+                        Overwrite &amp; re-parse
+                      </button>
+                    )}
                   </div>
                 )}
               </li>

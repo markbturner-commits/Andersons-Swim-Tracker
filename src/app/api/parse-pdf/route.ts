@@ -29,6 +29,7 @@ import { sha256 } from "@/lib/pdf/fileHash";
 import { parseHyTek } from "@/lib/pdf/parseHyTek";
 import { parseWithLLM } from "@/lib/pdf/parseLLM";
 import {
+  deleteUploadById,
   findPriorUpload,
   insertPendingUpload,
   markUploadFailed,
@@ -57,15 +58,23 @@ interface ErrorResponse {
     code: string;
     userMessage: string;
     uploadId?: string;
+    hasParsedPayload?: boolean;
   };
 }
 
-function errBody(err: PdfPipelineError, uploadId?: string): ErrorResponse {
+function errBody(
+  err: PdfPipelineError,
+  uploadId?: string,
+  extra?: { hasParsedPayload?: boolean },
+): ErrorResponse {
   return {
     error: {
       code: err.code,
       userMessage: err.userMessage,
       ...(uploadId ? { uploadId } : {}),
+      ...(extra?.hasParsedPayload !== undefined
+        ? { hasParsedPayload: extra.hasParsedPayload }
+        : {}),
     },
   };
 }
@@ -133,27 +142,39 @@ export async function POST(req: NextRequest): Promise<NextResponse<SuccessRespon
 
   const hash = sha256(buffer);
 
+  const url = new URL(req.url);
+  const overwrite = url.searchParams.get("overwrite") === "1";
+
   // ----- Duplicate detection -----
+  // When `overwrite=1`, we delete the prior row instead of short-circuiting,
+  // so the upload proceeds as if no prior existed. The meet (if one was
+  // saved from the prior upload) is untouched — pdf_uploads.meet_id has
+  // ON DELETE SET NULL on the meets side, not the other way around.
   try {
     const prior = await findPriorUpload(supabase, user.id, hash);
-    if (prior && prior.parsed_payload) {
-      // Return prior parse with a friendly status — nothing to parse again.
-      return NextResponse.json({
-        uploadId: prior.id,
-        payload: prior.parsed_payload,
-        fallbackUsed: false,
-        status: "duplicate-file",
-      });
+    if (prior && !overwrite) {
+      if (prior.parsed_payload) {
+        // Return prior parse with a friendly status — nothing to parse again.
+        return NextResponse.json({
+          uploadId: prior.id,
+          payload: prior.parsed_payload,
+          fallbackUsed: false,
+          status: "duplicate-file",
+        });
+      }
+      // Prior upload exists but parse failed or is pending. Surface a 409
+      // with an explicit overwrite affordance for the UI.
+      throw new DuplicateFile(prior.id, false);
     }
-    if (prior) {
-      // Prior upload exists but parse failed or is pending — let it run again
-      // by simply throwing DuplicateFile so the UI can show context. The user
-      // can re-trigger via the debug page.
-      throw new DuplicateFile(prior.id);
+    if (prior && overwrite) {
+      await deleteUploadById(supabase, prior.id);
     }
   } catch (e) {
     if (e instanceof DuplicateFile) {
-      return NextResponse.json(errBody(e, e.uploadId), { status: 409 });
+      return NextResponse.json(
+        errBody(e, e.uploadId, { hasParsedPayload: e.hasParsedPayload }),
+        { status: 409 },
+      );
     }
     // findPriorUpload threw — likely an RLS or transport error. Surface it.
     return NextResponse.json(
@@ -168,12 +189,16 @@ export async function POST(req: NextRequest): Promise<NextResponse<SuccessRespon
   }
 
   // ----- Upload to Supabase Storage -----
+  // `upsert: true` covers the overwrite path: the prior row was deleted just
+  // above, but the storage object keyed by `${user_id}/${hash}.pdf` may still
+  // exist from the original upload. Identical hash means identical bytes, so
+  // overwriting is a no-op for non-overwrite duplicates anyway.
   const storagePath = `${user.id}/${hash}.pdf`;
   const { error: uploadErr } = await supabase.storage
     .from("meet-pdfs")
     .upload(storagePath, buffer, {
       contentType: "application/pdf",
-      upsert: false,
+      upsert: true,
     });
   if (uploadErr) {
     return NextResponse.json(
@@ -214,7 +239,6 @@ export async function POST(req: NextRequest): Promise<NextResponse<SuccessRespon
   // client can navigate away while we parse. Bounded by `maxDuration` — if
   // the LLM fallback runs long we'll get cut off and the row stays pending;
   // the UI surfaces that as a stuck job the user can re-upload.
-  const url = new URL(req.url);
   const forceFallback = url.searchParams.get("fallback") === "1";
 
   after(async () => {
