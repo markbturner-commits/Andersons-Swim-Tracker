@@ -5,6 +5,16 @@ import { getSharedSwimmer } from "@/lib/queries/share";
 import { ageOnDate, eventLabel, formatTime } from "@/lib/format";
 import { getStandardLookup } from "@/lib/standards";
 import StandardsBadge from "@/components/StandardsBadge";
+import {
+  ProgressionChart,
+  type ProgressionResult,
+} from "@/components/analytics/ProgressionChart";
+import {
+  MultiEventProgressionChart,
+  buildEventSeries,
+  colorForIndex,
+  type MultiEventSeries,
+} from "@/components/analytics/MultiEventProgressionChart";
 import type { Course, Gender, SharedResult, StandardLevel, SwimEvent } from "@/types/db";
 
 export const dynamic = "force-dynamic";
@@ -77,6 +87,51 @@ export default async function SharePage({ params }: PageProps) {
 
   const totalPrs = results.filter((r) => r.is_pr).length;
 
+  // Build per-event progression data — one chart per event with 2+ swims,
+  // plus an overview chart with every event normalized to its own PR.
+  const resultsByEvent = new Map<number, SharedResult[]>();
+  for (const r of results) {
+    const arr = resultsByEvent.get(r.event_id) ?? [];
+    arr.push(r);
+    resultsByEvent.set(r.event_id, arr);
+  }
+
+  const eventGroups: Array<{
+    event: SwimEvent;
+    results: SharedResult[];
+  }> = [];
+  for (const [, arr] of resultsByEvent) {
+    if (arr.length < 2) continue;
+    const sorted = [...arr].sort((a, b) =>
+      a.meet.start_date.localeCompare(b.meet.start_date),
+    );
+    eventGroups.push({ event: sorted[0].event, results: sorted });
+  }
+  eventGroups.sort(
+    (a, b) =>
+      a.event.distance_m - b.event.distance_m ||
+      a.event.stroke.localeCompare(b.event.stroke) ||
+      a.event.course.localeCompare(b.event.course),
+  );
+
+  const overviewSeries: MultiEventSeries[] = [];
+  eventGroups.forEach((group, i) => {
+    const series = buildEventSeries({
+      eventId: group.event.id,
+      label: eventLabel(
+        group.event.distance_m,
+        group.event.stroke,
+        group.event.course,
+      ),
+      color: colorForIndex(i),
+      results: group.results.map((r) => ({
+        time_ms: r.time_ms,
+        meet_start_date: r.meet.start_date,
+      })),
+    });
+    if (series) overviewSeries.push(series);
+  });
+
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
       <div className="flex items-center gap-2 text-navy">
@@ -145,6 +200,57 @@ export default async function SharePage({ params }: PageProps) {
               </table>
             </div>
           </section>
+
+          {eventGroups.length > 0 && (
+            <section className="mt-8">
+              <h2 className="mb-3 font-display text-lg text-navy">
+                Progression over time
+              </h2>
+              <div className="space-y-4">
+                {overviewSeries.length >= 2 && (
+                  <MultiEventProgressionChart series={overviewSeries} />
+                )}
+                {eventGroups.map(({ event, results: eventResults }) => {
+                  const progressionData: ProgressionResult[] = eventResults.map(
+                    (r) => ({
+                      id: r.id,
+                      swimmer_id: r.swimmer_id,
+                      meet_id: r.meet_id,
+                      event_id: r.event_id,
+                      time_ms: r.time_ms,
+                      place: r.place,
+                      age_at_meet: r.age_at_meet,
+                      splits: null,
+                      is_pr: r.is_pr,
+                      dq: r.dq,
+                      exhibition: r.exhibition,
+                      created_at: "",
+                      meet_start_date: r.meet.start_date,
+                      standard: null,
+                    }),
+                  );
+                  return (
+                    <ProgressionChart
+                      key={event.id}
+                      results={progressionData}
+                      birthdate={swimmer.birthdate}
+                      gender={swimmer.gender as Gender}
+                      course={event.course as Course}
+                      eventId={event.id}
+                      distanceM={event.distance_m}
+                      stroke={event.stroke}
+                      eventLabel={eventLabel(
+                        event.distance_m,
+                        event.stroke,
+                        event.course,
+                      )}
+                      goalTimeMs={null}
+                    />
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
           <section className="mt-8">
             <h2 className="mb-3 font-display text-lg text-navy">Meet history</h2>
