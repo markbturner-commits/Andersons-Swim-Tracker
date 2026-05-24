@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Menu, X, Plus, LogOut, User } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { clearOfflineData } from "@/lib/offline/sync";
 
 interface SiteHeaderProps {
   userEmail?: string | null;
@@ -25,6 +26,9 @@ export function SiteHeader({ userEmail }: SiteHeaderProps) {
   async function handleSignOut() {
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();
+    // Wipe the IDB mirror so the next signed-in user can't see the
+    // previous user's data. Outbox is preserved by design.
+    await clearOfflineData().catch(() => {});
     router.push("/login");
     router.refresh();
   }

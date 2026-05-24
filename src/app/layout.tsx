@@ -4,6 +4,7 @@ import "./globals.css";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 import { OfflineBanner } from "@/components/OfflineBanner";
+import { OfflineSyncer } from "@/components/OfflineSyncer";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
@@ -70,6 +71,7 @@ export default async function RootLayout({
         <OfflineBanner />
         {showHeader && <SiteHeader userEmail={userEmail} />}
         <div className="flex-1">{children}</div>
+        {showHeader && <OfflineSyncer />}
         <ServiceWorkerRegistrar />
       </body>
     </html>
