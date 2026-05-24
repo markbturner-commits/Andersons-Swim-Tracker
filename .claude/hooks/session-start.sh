@@ -7,13 +7,23 @@ fi
 
 cd "$CLAUDE_PROJECT_DIR"
 
-npm install
+if [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
+  bun install
+elif [ -f "pnpm-lock.yaml" ]; then
+  pnpm install --frozen-lockfile
+elif [ -f "yarn.lock" ]; then
+  yarn install --frozen-lockfile
+elif [ -f "package-lock.json" ]; then
+  npm ci
+else
+  npm install
+fi
 
 if ! command -v vercel >/dev/null 2>&1; then
   npm install -g vercel
 fi
 
-if [ -n "${VERCEL_TOKEN:-}" ]; then
+if [ -n "${VERCEL_TOKEN:-}" ] && [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   echo "export VERCEL_TOKEN=\"$VERCEL_TOKEN\"" >> "$CLAUDE_ENV_FILE"
 fi
 
