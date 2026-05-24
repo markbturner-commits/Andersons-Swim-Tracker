@@ -67,6 +67,18 @@ tests/                  Cross-cutting integration tests
 - `npm run seed` — load USA Swimming 2024–2028 time standards
 - `npm run typecheck` — `tsc --noEmit`
 
+## Offline / PWA
+
+The app is a PWA: installable to a phone home screen, with a service worker
+(`@serwist/next`) that pre-caches the app shell and runtime-caches routes for
+offline use. The SW is disabled in `next dev` (Serwist's precache injection
+doesn't run under Turbopack); test it against `next build && next start`.
+Generated artefacts: `public/sw.js`, `public/manifest.webmanifest`,
+`public/icons/`.
+
+Offline support is rolling out in phases — see the offline plan at
+`/root/.claude/plans/i-d-like-to-start-scalable-harbor.md`.
+
 ## Plan
 
 Full plan + reviews: `/root/.claude/plans/i-want-build-an-wise-unicorn.md`.
