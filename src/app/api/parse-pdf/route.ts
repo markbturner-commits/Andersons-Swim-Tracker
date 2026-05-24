@@ -2,13 +2,16 @@
 //
 // Accepts multipart/form-data with a single `file` field (application/pdf, <=10MB).
 // Computes sha256, short-circuits on duplicates, uploads to Supabase Storage,
-// runs the Hy-Tek regex parser, falls back to the LLM, and returns the parsed
-// payload + uploadId.
+// inserts a `pending` pdf_uploads row, then RETURNS the uploadId immediately —
+// the actual Hy-Tek + LLM parsing runs in the background via `after()` so the
+// client doesn't have to keep the connection open. The confirm page polls the
+// row's parse_status until it flips to `parsed` or `failed`.
 //
 // Every catch site names a specific PdfPipelineError subclass — no generic
 // 500s, no silent failures.
 
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   DuplicateFile,
@@ -31,9 +34,12 @@ import {
   markUploadFailed,
   markUploadParsed,
 } from "@/lib/queries/pdf";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { ParsedMeetPayload } from "@/types/db";
 
 // pdf-parse uses Node Buffer/fs APIs — won't run on Edge runtime.
-// Vercel hobby tier caps at 60s; LLM fallback w/ retries can take ~30-45s.
+// Vercel hobby tier caps at 60s; the `after()` parser still has to finish
+// within that window or it gets killed and the row stays `pending`.
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
@@ -41,9 +47,9 @@ const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
 interface SuccessResponse {
   uploadId: string;
-  payload: import("@/types/db").ParsedMeetPayload;
-  fallbackUsed: boolean;
-  status: "parsed" | "duplicate-file";
+  payload?: ParsedMeetPayload;
+  fallbackUsed?: boolean;
+  status: "pending" | "duplicate-file";
 }
 
 interface ErrorResponse {
@@ -131,7 +137,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<SuccessRespon
   try {
     const prior = await findPriorUpload(supabase, user.id, hash);
     if (prior && prior.parsed_payload) {
-      // Return prior parse with a friendly status.
+      // Return prior parse with a friendly status — nothing to parse again.
       return NextResponse.json({
         uploadId: prior.id,
         payload: prior.parsed_payload,
@@ -203,14 +209,36 @@ export async function POST(req: NextRequest): Promise<NextResponse<SuccessRespon
     );
   }
 
-  // ----- Parse -----
+  // ----- Schedule parsing AFTER the response is sent -----
+  // `after()` keeps the serverless function alive past the response so the
+  // client can navigate away while we parse. Bounded by `maxDuration` — if
+  // the LLM fallback runs long we'll get cut off and the row stays pending;
+  // the UI surfaces that as a stuck job the user can re-upload.
   const url = new URL(req.url);
   const forceFallback = url.searchParams.get("fallback") === "1";
 
-  let fallbackUsed = false;
-  let payload: import("@/types/db").ParsedMeetPayload | null = null;
+  after(async () => {
+    await runParse(supabase, uploadId, buffer, forceFallback);
+  });
+
+  return NextResponse.json({
+    uploadId,
+    status: "pending",
+  });
+}
+
+// ---------- Background parse pipeline ----------
+//
+// Mirrors the previous in-request parse logic, but writes results to the row
+// via markUploadParsed / markUploadFailed instead of returning a payload.
+async function runParse(
+  supabase: SupabaseClient,
+  uploadId: string,
+  buffer: Buffer,
+  forceFallback: boolean,
+): Promise<void> {
+  let payload: ParsedMeetPayload | null = null;
   let regexErr: PdfPipelineError | null = null;
-  let rawTextForLLM = "";
 
   if (!forceFallback) {
     try {
@@ -218,9 +246,8 @@ export async function POST(req: NextRequest): Promise<NextResponse<SuccessRespon
       payload = result.payload;
     } catch (e) {
       if (e instanceof PdfTextExtractionEmpty) {
-        // No fallback can help — empty text means scanned image.
-        await markUploadFailed(supabase, uploadId, e.userMessage);
-        return NextResponse.json(errBody(e, uploadId), { status: 422 });
+        await safeMarkFailed(supabase, uploadId, e.userMessage);
+        return;
       }
       if (e instanceof PdfFormatUnrecognized) {
         regexErr = e;
@@ -233,14 +260,12 @@ export async function POST(req: NextRequest): Promise<NextResponse<SuccessRespon
     }
   }
 
-  // LLM fallback path: triggered by ?fallback=1 OR by a PdfFormatUnrecognized.
   if (!payload) {
     try {
-      // Re-extract the raw text for the LLM (cheaper than re-running pdf-parse
-      // with the 2-column re-ordering — for the LLM we just want all the text).
       const { default: pdfParse } = (await import("pdf-parse")) as unknown as {
         default: (b: Buffer) => Promise<{ text: string }>;
       };
+      let rawTextForLLM = "";
       try {
         const r = await pdfParse(buffer);
         rawTextForLLM = r.text ?? "";
@@ -249,64 +274,52 @@ export async function POST(req: NextRequest): Promise<NextResponse<SuccessRespon
       }
       if (!rawTextForLLM.trim()) {
         const e = new PdfTextExtractionEmpty();
-        await markUploadFailed(supabase, uploadId, e.userMessage);
-        return NextResponse.json(errBody(e, uploadId), { status: 422 });
+        await safeMarkFailed(supabase, uploadId, e.userMessage);
+        return;
       }
       payload = await parseWithLLM(rawTextForLLM);
-      fallbackUsed = true;
     } catch (e) {
       if (
         e instanceof LLMRateLimited ||
         e instanceof LLMUnavailable ||
         e instanceof LLMParseError
       ) {
-        await markUploadFailed(supabase, uploadId, e.userMessage);
-        const status = e instanceof LLMRateLimited ? 429 : 422;
-        return NextResponse.json(errBody(e, uploadId), { status });
+        await safeMarkFailed(supabase, uploadId, e.userMessage);
+        return;
       }
-      // Unexpected — propagate as a generic but still structured error.
       const message = e instanceof Error ? e.message : String(e);
-      await markUploadFailed(supabase, uploadId, `Unknown: ${message}`);
-      return NextResponse.json(
-        {
-          error: {
-            code: "UNKNOWN",
-            userMessage: regexErr?.userMessage ?? "Parsing failed.",
-            uploadId,
-          },
-        },
-        { status: 500 },
+      await safeMarkFailed(
+        supabase,
+        uploadId,
+        regexErr?.userMessage ?? `Parsing failed: ${message}`,
       );
+      return;
     }
   }
 
-  // ----- No results found is its own failure mode -----
   if (!payload.results || payload.results.length === 0) {
     const e = new NoResultsFound();
-    await markUploadFailed(supabase, uploadId, e.userMessage);
-    return NextResponse.json(errBody(e, uploadId), { status: 422 });
+    await safeMarkFailed(supabase, uploadId, e.userMessage);
+    return;
   }
 
-  // ----- Save + mark parsed -----
   try {
     await markUploadParsed(supabase, uploadId, payload);
   } catch (e) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "DB_ERROR",
-          userMessage: e instanceof Error ? e.message : "Save failed",
-          uploadId,
-        },
-      },
-      { status: 500 },
-    );
+    const msg = e instanceof Error ? e.message : "markUploadParsed failed";
+    await safeMarkFailed(supabase, uploadId, msg);
   }
+}
 
-  return NextResponse.json({
-    uploadId,
-    payload,
-    fallbackUsed,
-    status: "parsed",
-  });
+async function safeMarkFailed(
+  supabase: SupabaseClient,
+  uploadId: string,
+  message: string,
+): Promise<void> {
+  try {
+    await markUploadFailed(supabase, uploadId, message);
+  } catch (e) {
+    // Last-resort log; the row will remain in `pending` and the UI surfaces it.
+    console.error(`markUploadFailed errored for ${uploadId}:`, e);
+  }
 }

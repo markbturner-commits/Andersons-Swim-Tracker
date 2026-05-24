@@ -1,9 +1,10 @@
 "use client";
 
 // /meets/upload — drag-and-drop PDF upload, single or batch.
-// Posts each file to /api/parse-pdf sequentially. On a single successful
-// upload, we redirect straight to the confirm step (matches the original
-// one-PDF flow); for batches the user picks which one to confirm next.
+// Posts each file to /api/parse-pdf sequentially. The route returns as soon
+// as the file is stored and a `pending` row is inserted — parsing happens
+// server-side in the background, so the user can navigate away (or open the
+// confirm page where a poller shows "Parsing…" until the result lands).
 // Error messages come from the route's `error.userMessage` when present;
 // non-JSON responses (Vercel proxy HTML for 413/504/etc.) are surfaced with
 // a status-aware fallback instead of leaking a Safari TypeError.
@@ -175,6 +176,7 @@ export default function UploadPage() {
       }
       setRunning(false);
       // Preserve the original single-file UX: one file in, one redirect out.
+      // The confirm page handles the still-parsing state with its own poller.
       if (queued.length === 1 && successCount === 1 && lastSuccessUploadId) {
         router.push(`/meets/upload/${lastSuccessUploadId}/confirm`);
       }
@@ -260,8 +262,10 @@ export default function UploadPage() {
         />
         {running ? (
           <div>
-            <div className="font-medium text-navy">Parsing…</div>
-            <div className="mt-1 text-sm text-ink/70">~10 seconds per file — hang tight.</div>
+            <div className="font-medium text-navy">Uploading…</div>
+            <div className="mt-1 text-sm text-ink/70">
+              You can stay or come back later — parsing keeps running.
+            </div>
           </div>
         ) : (
           <div>
@@ -331,15 +335,12 @@ export default function UploadPage() {
 
                 {item.status === "success" && item.uploadId && (
                   <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
-                    {item.duplicate && (
+                    {item.duplicate ? (
                       <span className="rounded-full bg-std-b px-2 py-0.5 text-ink/70">
                         Already uploaded
                       </span>
-                    )}
-                    {item.fallbackUsed && !item.duplicate && (
-                      <span className="rounded-full bg-aqua/15 px-2 py-0.5 text-aqua">
-                        AI fallback used
-                      </span>
+                    ) : (
+                      <span className="text-ink/60">Parsing in background…</span>
                     )}
                     <a
                       href={`/meets/upload/${item.uploadId}/confirm`}
@@ -370,9 +371,9 @@ function StatusBadge({ status }: { status: ItemStatus }) {
       case "queued":
         return { label: "Queued", cls: "bg-gray-100 text-ink/70" };
       case "uploading":
-        return { label: "Parsing…", cls: "bg-aqua/15 text-aqua" };
+        return { label: "Uploading…", cls: "bg-aqua/15 text-aqua" };
       case "success":
-        return { label: "Parsed", cls: "bg-std-aa/20 text-std-aa" };
+        return { label: "Uploaded", cls: "bg-std-aa/20 text-std-aa" };
       case "error":
         return { label: "Failed", cls: "bg-std-bb/15 text-std-bb" };
     }
