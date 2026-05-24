@@ -2,6 +2,16 @@
 
 import { useEffect } from "react";
 import { drainPdfOutbox } from "@/lib/offline/outbox-pdf";
+import { drainConfirmOutbox } from "@/lib/offline/outbox-confirm";
+
+// Drain PDFs first so queued confirms can resolve their server-side
+// uploadId once the parent PDF row syncs. drainConfirmOutbox handles the
+// blocked-on-pdf state internally, so a second pass on the next trigger
+// picks them up.
+async function drainAll() {
+  await drainPdfOutbox();
+  await drainConfirmOutbox();
+}
 
 // Mount once in the root layout. Triggers a PDF outbox drain whenever
 // service is plausibly back: `online` event, tab regaining visibility,
@@ -19,7 +29,7 @@ export function OutboxDrainer() {
     const trigger = () => {
       if (cancelled) return;
       if (!navigator.onLine) return;
-      void drainPdfOutbox();
+      void drainAll();
     };
 
     trigger();

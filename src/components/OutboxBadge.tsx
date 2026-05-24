@@ -3,20 +3,31 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CloudOff } from "lucide-react";
-import { observePendingCount } from "@/lib/offline/outbox-pdf";
+import { observePendingCount as observePendingPdfCount } from "@/lib/offline/outbox-pdf";
+import { observePendingConfirmCount } from "@/lib/offline/outbox-confirm";
 
 // Tiny pill that surfaces the PDF outbox depth from anywhere in the app.
 // Links to the dedicated /meets/queue page. Hidden when nothing's pending.
 export function OutboxBadge() {
-  const [count, setCount] = useState(0);
+  const [pdfCount, setPdfCount] = useState(0);
+  const [confirmCount, setConfirmCount] = useState(0);
+  const count = pdfCount + confirmCount;
 
   useEffect(() => {
     if (typeof indexedDB === "undefined") return;
-    const sub = observePendingCount().subscribe({
-      next: setCount,
-      error: () => setCount(0),
-    });
-    return () => sub.unsubscribe();
+    const subs = [
+      observePendingPdfCount().subscribe({
+        next: setPdfCount,
+        error: () => setPdfCount(0),
+      }),
+      observePendingConfirmCount().subscribe({
+        next: setConfirmCount,
+        error: () => setConfirmCount(0),
+      }),
+    ];
+    return () => {
+      for (const s of subs) s.unsubscribe();
+    };
   }, []);
 
   if (count <= 0) return null;
