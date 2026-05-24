@@ -38,6 +38,7 @@ export async function updateSession(request: NextRequest) {
   const isPublic =
     path === "/login" ||
     path === "/auth/callback" ||
+    path === "/offline" ||
     path.startsWith("/_next") ||
     path === "/favicon.ico" ||
     path === "/sw.js" ||
