@@ -3,6 +3,7 @@
 
 insert into public.events (distance_m, stroke, course) values
   -- Freestyle
+  (25,   'FR', 'SCY'),
   (50,   'FR', 'SCY'),
   (100,  'FR', 'SCY'),
   (200,  'FR', 'SCY'),
@@ -22,6 +23,7 @@ insert into public.events (distance_m, stroke, course) values
   (800,  'FR', 'LCM'),
   (1500, 'FR', 'LCM'),
   -- Backstroke
+  (25,  'BK', 'SCY'),
   (50,  'BK', 'SCY'),
   (100, 'BK', 'SCY'),
   (200, 'BK', 'SCY'),
@@ -32,6 +34,7 @@ insert into public.events (distance_m, stroke, course) values
   (100, 'BK', 'LCM'),
   (200, 'BK', 'LCM'),
   -- Breaststroke
+  (25,  'BR', 'SCY'),
   (50,  'BR', 'SCY'),
   (100, 'BR', 'SCY'),
   (200, 'BR', 'SCY'),
@@ -42,6 +45,7 @@ insert into public.events (distance_m, stroke, course) values
   (100, 'BR', 'LCM'),
   (200, 'BR', 'LCM'),
   -- Butterfly
+  (25,  'FL', 'SCY'),
   (50,  'FL', 'SCY'),
   (100, 'FL', 'SCY'),
   (200, 'FL', 'SCY'),
