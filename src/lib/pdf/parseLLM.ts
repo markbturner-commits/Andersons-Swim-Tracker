@@ -146,7 +146,7 @@ export async function parseWithLLM(
     try {
       const response = await client.messages.create({
         model: MODEL,
-        max_tokens: 16000,
+        max_tokens: 8000,
         system: [
           {
             type: "text",

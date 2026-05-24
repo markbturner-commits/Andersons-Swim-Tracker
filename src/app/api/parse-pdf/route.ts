@@ -17,25 +17,15 @@ import {
   DuplicateFile,
   FileTooLarge,
   FileWrongType,
-  LLMParseError,
-  LLMRateLimited,
-  LLMUnavailable,
-  NoResultsFound,
-  PdfFormatUnrecognized,
   PdfPipelineError,
-  PdfTextExtractionEmpty,
 } from "@/lib/pdf/errors";
 import { sha256 } from "@/lib/pdf/fileHash";
-import { parseHyTek } from "@/lib/pdf/parseHyTek";
-import { parseWithLLM } from "@/lib/pdf/parseLLM";
+import { runParse } from "@/lib/pdf/runParse";
 import {
   deleteUploadById,
   findPriorUpload,
   insertPendingUpload,
-  markUploadFailed,
-  markUploadParsed,
 } from "@/lib/queries/pdf";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ParsedMeetPayload } from "@/types/db";
 
 // pdf-parse uses Node Buffer/fs APIs — won't run on Edge runtime.
@@ -251,99 +241,3 @@ export async function POST(req: NextRequest): Promise<NextResponse<SuccessRespon
   });
 }
 
-// ---------- Background parse pipeline ----------
-//
-// Mirrors the previous in-request parse logic, but writes results to the row
-// via markUploadParsed / markUploadFailed instead of returning a payload.
-async function runParse(
-  supabase: SupabaseClient,
-  uploadId: string,
-  buffer: Buffer,
-  forceFallback: boolean,
-): Promise<void> {
-  let payload: ParsedMeetPayload | null = null;
-  let regexErr: PdfPipelineError | null = null;
-
-  if (!forceFallback) {
-    try {
-      const result = await parseHyTek(buffer);
-      payload = result.payload;
-    } catch (e) {
-      if (e instanceof PdfTextExtractionEmpty) {
-        await safeMarkFailed(supabase, uploadId, e.userMessage);
-        return;
-      }
-      if (e instanceof PdfFormatUnrecognized) {
-        regexErr = e;
-      } else if (e instanceof Error) {
-        regexErr = new PdfFormatUnrecognized();
-        regexErr.message = e.message;
-      } else {
-        regexErr = new PdfFormatUnrecognized();
-      }
-    }
-  }
-
-  if (!payload) {
-    try {
-      const { default: pdfParse } = (await import("pdf-parse")) as unknown as {
-        default: (b: Buffer) => Promise<{ text: string }>;
-      };
-      let rawTextForLLM = "";
-      try {
-        const r = await pdfParse(buffer);
-        rawTextForLLM = r.text ?? "";
-      } catch {
-        rawTextForLLM = "";
-      }
-      if (!rawTextForLLM.trim()) {
-        const e = new PdfTextExtractionEmpty();
-        await safeMarkFailed(supabase, uploadId, e.userMessage);
-        return;
-      }
-      payload = await parseWithLLM(rawTextForLLM);
-    } catch (e) {
-      if (
-        e instanceof LLMRateLimited ||
-        e instanceof LLMUnavailable ||
-        e instanceof LLMParseError
-      ) {
-        await safeMarkFailed(supabase, uploadId, e.userMessage);
-        return;
-      }
-      const message = e instanceof Error ? e.message : String(e);
-      await safeMarkFailed(
-        supabase,
-        uploadId,
-        regexErr?.userMessage ?? `Parsing failed: ${message}`,
-      );
-      return;
-    }
-  }
-
-  if (!payload.results || payload.results.length === 0) {
-    const e = new NoResultsFound();
-    await safeMarkFailed(supabase, uploadId, e.userMessage);
-    return;
-  }
-
-  try {
-    await markUploadParsed(supabase, uploadId, payload);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "markUploadParsed failed";
-    await safeMarkFailed(supabase, uploadId, msg);
-  }
-}
-
-async function safeMarkFailed(
-  supabase: SupabaseClient,
-  uploadId: string,
-  message: string,
-): Promise<void> {
-  try {
-    await markUploadFailed(supabase, uploadId, message);
-  } catch (e) {
-    // Last-resort log; the row will remain in `pending` and the UI surfaces it.
-    console.error(`markUploadFailed errored for ${uploadId}:`, e);
-  }
-}
