@@ -275,7 +275,9 @@ export function ConfirmForm({ uploadId, payload, swimmers, fallbackTriggered }: 
 
       {/* ----- Swimmer picker ----- */}
       <section className="rounded-xl border border-gray-200 p-4">
-        <h2 className="font-display text-lg text-navy">Which swimmer is yours?</h2>
+        <h2 className="font-display text-lg text-navy">
+          {matchedMode ? "Swimmer" : "Which swimmer is yours?"}
+        </h2>
         {payload.swimmers.length === 0 ? (
           <p className="mt-2 text-sm text-ink">No swimmers detected in the PDF.</p>
         ) : matchedMode ? (
