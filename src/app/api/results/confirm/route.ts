@@ -236,6 +236,15 @@ export async function POST(
     if (row.action === "NEW") {
       const { error } = await supabase.from("results").insert(rowData);
       if (error) {
+        // 23505 = unique_violation on (swimmer_id, meet_id, event_id).
+        // This happens when an offline-queued confirm is retried after the
+        // server already processed it (response was lost in transit) or
+        // when two devices submit the same meet. Treat as skipped — the
+        // existing row is the truth — so the retry path is idempotent.
+        if (error.code === "23505") {
+          skipped++;
+          continue;
+        }
         return jsonErr("DB_ERROR", `Insert failed: ${error.message}`, 500);
       }
       inserted++;

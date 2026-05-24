@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Menu, X, Plus, LogOut, User } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { clearOfflineData } from "@/lib/offline/sync";
+import { OutboxBadge } from "@/components/OutboxBadge";
 
 interface SiteHeaderProps {
   userEmail?: string | null;
@@ -25,6 +27,9 @@ export function SiteHeader({ userEmail }: SiteHeaderProps) {
   async function handleSignOut() {
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signOut();
+    // Wipe the IDB mirror so the next signed-in user can't see the
+    // previous user's data. Outbox is preserved by design.
+    await clearOfflineData().catch(() => {});
     router.push("/login");
     router.refresh();
   }
@@ -76,7 +81,8 @@ export function SiteHeader({ userEmail }: SiteHeaderProps) {
         </ul>
 
         {/* Auth menu desktop */}
-        <div className="hidden md:flex items-center relative">
+        <div className="hidden md:flex items-center gap-2 relative">
+          <OutboxBadge />
           <button
             type="button"
             onClick={() => setMenuOpen((v) => !v)}
@@ -110,17 +116,20 @@ export function SiteHeader({ userEmail }: SiteHeaderProps) {
           )}
         </div>
 
-        {/* Mobile toggle */}
-        <button
-          type="button"
-          className="md:hidden inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua"
-          aria-expanded={drawerOpen}
-          aria-controls="mobile-drawer"
-          aria-label={drawerOpen ? "Close menu" : "Open menu"}
-          onClick={() => setDrawerOpen((v) => !v)}
-        >
-          {drawerOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-        </button>
+        {/* Mobile cluster: outbox badge + drawer toggle */}
+        <div className="md:hidden flex items-center gap-2">
+          <OutboxBadge />
+          <button
+            type="button"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua"
+            aria-expanded={drawerOpen}
+            aria-controls="mobile-drawer"
+            aria-label={drawerOpen ? "Close menu" : "Open menu"}
+            onClick={() => setDrawerOpen((v) => !v)}
+          >
+            {drawerOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+          </button>
+        </div>
       </nav>
 
       {/* Mobile drawer */}

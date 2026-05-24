@@ -11,6 +11,8 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { enqueuePdf, drainPdfOutbox } from "@/lib/offline/outbox-pdf";
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
@@ -147,6 +149,7 @@ export function UploadDropzone({ knownPendingUploadIds }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const [items, setItems] = useState<UploadItem[]>([]);
   const [running, setRunning] = useState(false);
+  const [offlineQueuedCount, setOfflineQueuedCount] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const knownSet = useMemo(
@@ -211,18 +214,61 @@ export function UploadDropzone({ knownPendingUploadIds }: Props) {
     (files: FileList | File[]) => {
       const list = Array.from(files);
       if (list.length === 0) return;
-      const newItems: UploadItem[] = list.map((file) => {
-        const pre = preflightError(file);
-        return {
+
+      // Run preflight on everything up-front so offline + invalid files
+      // share the same error UI.
+      const preflighted = list.map((file) => ({
+        file,
+        pre: preflightError(file),
+      }));
+      const invalidItems: UploadItem[] = preflighted
+        .filter((p) => p.pre)
+        .map(({ file, pre }) => ({
           id: newId(),
           file,
-          status: pre ? "error" : "queued",
-          error: pre ?? undefined,
-        };
-      });
-      setItems((prev) => [...prev, ...newItems]);
-      const queued = newItems.filter((i) => i.status === "queued");
-      if (queued.length > 0) void processQueue(queued);
+          status: "error" as const,
+          error: pre!,
+        }));
+      if (invalidItems.length > 0) {
+        setItems((prev) => [...prev, ...invalidItems]);
+      }
+      const validFiles = preflighted.filter((p) => !p.pre).map((p) => p.file);
+      if (validFiles.length === 0) return;
+
+      // Offline path: stash the bytes in the IDB outbox so they sync the
+      // moment service returns. We don't add a per-session item row here —
+      // status lives on the queue page (linked from the header badge).
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        void Promise.all(validFiles.map((f) => enqueuePdf(f)))
+          .then(() => {
+            setOfflineQueuedCount((c) => c + validFiles.length);
+            // Best-effort drain in case the offline check raced with a
+            // reconnection — the drainer's internal online guard makes
+            // this safe to call freely.
+            void drainPdfOutbox();
+          })
+          .catch((err) => {
+            const message =
+              err instanceof Error ? err.message : "Couldn't queue offline.";
+            const erroredItems: UploadItem[] = validFiles.map((file) => ({
+              id: newId(),
+              file,
+              status: "error",
+              error: { code: "OFFLINE_QUEUE_FAILED", userMessage: message },
+            }));
+            setItems((prev) => [...prev, ...erroredItems]);
+          });
+        return;
+      }
+
+      // Online: existing in-session queue + sequential POST.
+      const onlineItems: UploadItem[] = validFiles.map((file) => ({
+        id: newId(),
+        file,
+        status: "queued",
+      }));
+      setItems((prev) => [...prev, ...onlineItems]);
+      void processQueue(onlineItems);
     },
     [processQueue],
   );
@@ -279,6 +325,16 @@ export function UploadDropzone({ knownPendingUploadIds }: Props) {
 
   return (
     <>
+      {offlineQueuedCount > 0 && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          Queued {offlineQueuedCount} file
+          {offlineQueuedCount === 1 ? "" : "s"} offline — they&apos;ll upload
+          when you&apos;re back online.{" "}
+          <Link href="/meets/queue" className="font-medium underline">
+            View queue
+          </Link>
+        </div>
+      )}
       <label
         className={`flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center transition-colors ${
           dragOver ? "border-aqua bg-aqua/5" : "border-gray-200"

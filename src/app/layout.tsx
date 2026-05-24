@@ -1,12 +1,30 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 import { SiteHeader } from "@/components/SiteHeader";
+import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
+import { OfflineBanner } from "@/components/OfflineBanner";
+import { OfflineSyncer } from "@/components/OfflineSyncer";
+import { OutboxDrainer } from "@/components/OutboxDrainer";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
   title: "Anderson's Swim Tracker",
   description: "Track every meet. See if you're getting faster. That's it.",
+  applicationName: "Anderson's Swim Tracker",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Swim Tracker",
+  },
+  icons: {
+    icon: "/favicon.ico",
+    apple: "/icons/apple-touch-icon.png",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0A2540",
 };
 
 // Routes that render WITHOUT the site header (unauthenticated surfaces).
@@ -51,8 +69,12 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body className="bg-white text-ink antialiased min-h-screen flex flex-col">
+        <OfflineBanner />
         {showHeader && <SiteHeader userEmail={userEmail} />}
         <div className="flex-1">{children}</div>
+        {showHeader && <OfflineSyncer />}
+        {showHeader && <OutboxDrainer />}
+        <ServiceWorkerRegistrar />
       </body>
     </html>
   );

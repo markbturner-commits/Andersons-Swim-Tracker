@@ -13,6 +13,10 @@ import { useRouter } from "next/navigation";
 import { eventLabel, formatTime, parseTime } from "@/lib/format";
 import { findMatchingParsedSwimmer, matchParsedSwimmer } from "@/lib/swimmer-match";
 import {
+  enqueueConfirm,
+  drainConfirmOutbox,
+} from "@/lib/offline/outbox-confirm";
+import {
   parseEventKey,
   type Course,
   type ParsedMeetPayload,
@@ -181,29 +185,67 @@ export function ConfirmForm({ uploadId, payload, swimmers, fallbackTriggered }: 
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [offlineNow, setOfflineNow] = useState(false);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") return;
+    setOfflineNow(!navigator.onLine);
+    const update = () => setOfflineNow(!navigator.onLine);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
 
   const handleSave = async () => {
     if (!pickedSwimmerId) return;
     setSaving(true);
     setSaveError(null);
+    const body = {
+      uploadId,
+      swimmerId: pickedSwimmerId,
+      meet: {
+        name: meetName,
+        date: meetDate,
+        location: meetLocation || null,
+        course: meetCourse,
+      },
+      results: rows.map((r) => ({
+        event_key: r.event_key,
+        time_ms: parseTime(r.time_input) || r.time_ms_parsed,
+        place: r.place,
+        exhibition: r.exhibition,
+        action: r.action,
+      })),
+    };
+
+    const offline =
+      typeof navigator !== "undefined" && !navigator.onLine;
+
+    if (offline) {
+      try {
+        await enqueueConfirm({
+          upload_id: uploadId,
+          client_pdf_id: null,
+          body,
+        });
+        // Best-effort drain — if connectivity just came back, this sends
+        // it immediately; otherwise it's a no-op until the next trigger.
+        void drainConfirmOutbox();
+        router.push("/meets/queue");
+      } catch (e) {
+        setSaveError(
+          e instanceof Error ? e.message : "Couldn't queue this save.",
+        );
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     try {
-      const body = {
-        uploadId,
-        swimmerId: pickedSwimmerId,
-        meet: {
-          name: meetName,
-          date: meetDate,
-          location: meetLocation || null,
-          course: meetCourse,
-        },
-        results: rows.map((r) => ({
-          event_key: r.event_key,
-          time_ms: parseTime(r.time_input) || r.time_ms_parsed,
-          place: r.place,
-          exhibition: r.exhibition,
-          action: r.action,
-        })),
-      };
       const res = await fetch("/api/results/confirm", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -227,7 +269,19 @@ export function ConfirmForm({ uploadId, payload, swimmers, fallbackTriggered }: 
         router.push(`/meets/${json.meetId}`);
       }
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Save failed");
+      // Network dropped mid-save. Stash to the outbox so the user doesn't
+      // lose their edits, then route to the queue page.
+      try {
+        await enqueueConfirm({
+          upload_id: uploadId,
+          client_pdf_id: null,
+          body,
+        });
+        void drainConfirmOutbox();
+        router.push("/meets/queue");
+      } catch {
+        setSaveError(e instanceof Error ? e.message : "Save failed");
+      }
     } finally {
       setSaving(false);
     }
@@ -238,6 +292,12 @@ export function ConfirmForm({ uploadId, payload, swimmers, fallbackTriggered }: 
       {fallbackTriggered && (
         <div className="rounded-xl border border-aqua/40 bg-aqua/5 p-3 text-sm text-ink">
           AI fallback parser was used — the regex parser couldn&apos;t lock onto this PDF&apos;s format.
+        </div>
+      )}
+      {offlineNow && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          You&apos;re offline. Your edits and the Save button will be queued
+          and sync when service returns.
         </div>
       )}
 
