@@ -118,6 +118,24 @@ export async function markUploadConfirmed(
 }
 
 /**
+ * Delete a pdf_uploads row by id. RLS scopes the delete to the uploader.
+ * Used by the overwrite path in /api/parse-pdf so a re-upload can replace
+ * a prior stuck/failed/orphaned row keyed on (uploader_id, file_sha256).
+ */
+export async function deleteUploadById(
+  supabase: SupabaseClient,
+  uploadId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("pdf_uploads")
+    .delete()
+    .eq("id", uploadId);
+  if (error) {
+    throw new Error(`deleteUploadById failed: ${error.message}`);
+  }
+}
+
+/**
  * Fetch a pdf_uploads row by id (RLS scopes to the uploader).
  */
 export async function getUpload(
