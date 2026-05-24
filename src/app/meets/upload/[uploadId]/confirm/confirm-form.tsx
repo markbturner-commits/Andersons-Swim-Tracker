@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { eventLabel, formatTime, parseTime } from "@/lib/format";
-import { matchParsedSwimmer } from "@/lib/swimmer-match";
+import { findMatchingParsedSwimmer, matchParsedSwimmer } from "@/lib/swimmer-match";
 import {
   parseEventKey,
   type Course,
@@ -55,23 +55,25 @@ export function ConfirmForm({ uploadId, payload, swimmers, fallbackTriggered }: 
   // ----- Swimmer picker -----
   // Choose the parsed-payload swimmer first (their name+age+team from the PDF).
   // Then map onto one of the user's existing swimmers (which carry birthdate).
-  const [pickedParsedName, setPickedParsedName] = useState<string | null>(
-    payload.swimmers[0]?.name ?? null,
+  // A meet PDF typically contains many swimmers; scan the whole list for one
+  // whose name + age agree with a saved swimmer (rather than blindly
+  // defaulting to swimmers[0], which almost never belongs to the user).
+  const initialAutoMatch = useMemo(
+    () =>
+      findMatchingParsedSwimmer(
+        payload.swimmers,
+        swimmers,
+        payload.meet.start_date,
+      ),
+    [payload.swimmers, swimmers, payload.meet.start_date],
   );
 
-  // Attempt to auto-match the initially-selected parsed swimmer to a saved
-  // one (name + age must agree). Used to seed pickedSwimmerId so the common
-  // case requires zero clicks.
-  const initialMatch = useMemo(() => {
-    const first = payload.swimmers[0];
-    if (!first) return { confidence: "none" as const };
-    return matchParsedSwimmer(first, swimmers, payload.meet.start_date);
-  }, [payload.swimmers, swimmers, payload.meet.start_date]);
+  const [pickedParsedName, setPickedParsedName] = useState<string | null>(
+    initialAutoMatch?.parsed.name ?? payload.swimmers[0]?.name ?? null,
+  );
 
   const [pickedSwimmerId, setPickedSwimmerId] = useState<string | null>(
-    initialMatch.confidence === "exact"
-      ? initialMatch.swimmer.id
-      : (swimmers[0]?.id ?? null),
+    initialAutoMatch?.swimmer.id ?? swimmers[0]?.id ?? null,
   );
 
   // Re-run matching whenever the user changes which PDF name is "theirs".

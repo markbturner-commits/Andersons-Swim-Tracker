@@ -40,3 +40,21 @@ export function matchParsedSwimmer(
   }
   return { confidence: "none" };
 }
+
+// Scan an entire parsed-swimmer list for the first entry that has an exact
+// match against the saved roster. Meet PDFs frequently contain dozens of
+// swimmers, only one of which belongs to the user — so picking the first
+// parsed name as the default never auto-matches in practice.
+export function findMatchingParsedSwimmer(
+  parsedList: ParsedSwimmer[],
+  saved: Swimmer[],
+  meetDate: string,
+): { parsed: ParsedSwimmer; swimmer: Swimmer } | null {
+  for (const parsed of parsedList) {
+    const m = matchParsedSwimmer(parsed, saved, meetDate);
+    if (m.confidence === "exact") {
+      return { parsed, swimmer: m.swimmer };
+    }
+  }
+  return null;
+}

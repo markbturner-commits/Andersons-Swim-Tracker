@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { matchParsedSwimmer, normalizeName } from "./swimmer-match";
+import {
+  findMatchingParsedSwimmer,
+  matchParsedSwimmer,
+  normalizeName,
+} from "./swimmer-match";
 import type { Swimmer } from "@/types/db";
 
 function makeSwimmer(overrides: Partial<Swimmer> = {}): Swimmer {
@@ -82,5 +86,38 @@ describe("matchParsedSwimmer", () => {
     if (result.confidence === "exact") {
       expect(result.swimmer.id).toBe("young");
     }
+  });
+});
+
+describe("findMatchingParsedSwimmer", () => {
+  const meetDate = "2026-05-24";
+
+  it("finds the user's swimmer even when buried in a roster of strangers", () => {
+    const saved = [
+      makeSwimmer({
+        id: "anderson",
+        name: "Anderson Turner",
+        birthdate: "2016-08-12",
+      }),
+    ];
+    const parsedList = [
+      { name: "Chamberlain, John", age: 8, team: "AQUA" },
+      { name: "Ferrara, Jackson", age: 8, team: "AQUA" },
+      { name: "Turner, Anderson", age: 9, team: "AQUA" },
+      { name: "Godlewski, Charlie", age: 9, team: "AQUA" },
+    ];
+    const result = findMatchingParsedSwimmer(parsedList, saved, meetDate);
+    expect(result).not.toBeNull();
+    expect(result?.parsed.name).toBe("Turner, Anderson");
+    expect(result?.swimmer.id).toBe("anderson");
+  });
+
+  it("returns null when no parsed swimmer matches any saved one", () => {
+    const saved = [makeSwimmer({ name: "Anderson Turner", birthdate: "2016-08-12" })];
+    const parsedList = [
+      { name: "Chamberlain, John", age: 8, team: "AQUA" },
+      { name: "Ferrara, Jackson", age: 8, team: "AQUA" },
+    ];
+    expect(findMatchingParsedSwimmer(parsedList, saved, meetDate)).toBeNull();
   });
 });
