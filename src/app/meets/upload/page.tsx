@@ -18,7 +18,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { listPendingUploads, type PendingUploadRow } from "@/lib/queries/pdf";
+import { RetryButton } from "./retry-button";
 import { UploadDropzone } from "./upload-dropzone";
+
+// A pending row older than this is treated as stuck — the background parser
+// hit Vercel's 60-second cap and was killed before it could flip the row to
+// parsed/failed. The 90-second threshold leaves a small grace window for
+// the markUploadParsed/Failed write to land.
+const STUCK_AFTER_MS = 90_000;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -85,8 +92,12 @@ export default async function UploadPage({ searchParams }: PageProps) {
 }
 
 function PendingRow({ row }: { row: PendingUploadRow }) {
+  const ageMs = Date.now() - new Date(row.created_at).getTime();
+  const isStuck = row.parse_status === "pending" && ageMs > STUCK_AFTER_MS;
   const label =
-    row.meet_name ?? (row.parse_status === "failed" ? "Unparsed PDF" : "Untitled meet");
+    row.meet_name ??
+    (row.parse_status === "failed" || isStuck ? "Unparsed PDF" : "Untitled meet");
+
   return (
     <li className="p-3 sm:p-4">
       <div className="flex items-start justify-between gap-3">
@@ -96,7 +107,7 @@ function PendingRow({ row }: { row: PendingUploadRow }) {
             {formatRelative(row.created_at)}
           </div>
         </div>
-        <PendingBadge status={row.parse_status} />
+        <PendingBadge status={row.parse_status} isStuck={isStuck} />
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
@@ -108,7 +119,7 @@ function PendingRow({ row }: { row: PendingUploadRow }) {
             Confirm results →
           </Link>
         )}
-        {row.parse_status === "pending" && (
+        {row.parse_status === "pending" && !isStuck && (
           <>
             <span className="text-ink/60">Parsing in background…</span>
             <Link
@@ -119,11 +130,20 @@ function PendingRow({ row }: { row: PendingUploadRow }) {
             </Link>
           </>
         )}
+        {row.parse_status === "pending" && isStuck && (
+          <>
+            <span className="text-std-bb">
+              Parser hit the 60-second cap and was killed.
+            </span>
+            <RetryButton uploadId={row.id} />
+          </>
+        )}
         {row.parse_status === "failed" && (
           <>
             {row.error && (
               <span className="text-std-bb">{row.error}</span>
             )}
+            <RetryButton uploadId={row.id} />
             <Link
               href={`/meets/upload/${row.id}/debug`}
               className="font-medium text-aqua underline"
@@ -137,8 +157,17 @@ function PendingRow({ row }: { row: PendingUploadRow }) {
   );
 }
 
-function PendingBadge({ status }: { status: PendingUploadRow["parse_status"] }) {
+function PendingBadge({
+  status,
+  isStuck,
+}: {
+  status: PendingUploadRow["parse_status"];
+  isStuck: boolean;
+}) {
   const { label, cls } = (() => {
+    if (status === "pending" && isStuck) {
+      return { label: "Stuck", cls: "bg-std-bb/15 text-std-bb" };
+    }
     switch (status) {
       case "pending":
         return { label: "Parsing…", cls: "bg-aqua/15 text-aqua" };
