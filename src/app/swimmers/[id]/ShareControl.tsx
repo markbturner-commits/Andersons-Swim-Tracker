@@ -87,7 +87,7 @@ export function ShareControl({ swimmerId, shareToken }: ShareControlProps) {
         <div
           role="dialog"
           aria-label="Share this swimmer"
-          className="absolute right-0 top-12 z-20 w-80 rounded-xl border border-gray-200 bg-white p-4 text-left shadow-md"
+          className="absolute left-0 top-12 z-20 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-gray-200 bg-white p-4 text-left shadow-md sm:left-auto sm:right-0"
         >
           {shareToken ? (
             <>
