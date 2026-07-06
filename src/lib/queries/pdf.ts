@@ -78,6 +78,27 @@ export async function markUploadParsed(
 }
 
 /**
+ * Persist the raw text extracted from a PDF so the diagnostic page can show
+ * the parser exactly what it saw. Best-effort: called before a parse attempt
+ * that may fail, so a later failure is still inspectable. Swallows errors —
+ * a failed raw_text write must never mask the real parse outcome.
+ */
+export async function saveRawText(
+  supabase: SupabaseClient,
+  uploadId: string,
+  rawText: string,
+): Promise<void> {
+  try {
+    await supabase
+      .from("pdf_uploads")
+      .update({ raw_text: rawText })
+      .eq("id", uploadId);
+  } catch {
+    // Non-fatal — the diagnostic just won't have the extracted text.
+  }
+}
+
+/**
  * Flip parse_status to 'failed' with an error message.
  */
 export async function markUploadFailed(

@@ -22,7 +22,7 @@ import {
 } from "./errors";
 import { parseHyTek } from "./parseHyTek";
 import { parseWithLLM } from "./parseLLM";
-import { markUploadFailed, markUploadParsed } from "@/lib/queries/pdf";
+import { markUploadFailed, markUploadParsed, saveRawText } from "@/lib/queries/pdf";
 import type { ParsedMeetPayload } from "@/types/db";
 
 export async function runParse(
@@ -71,6 +71,9 @@ export async function runParse(
         await safeMarkFailed(supabase, uploadId, e.userMessage);
         return;
       }
+      // Persist the extracted text before the LLM attempt so the diagnostic
+      // page can show it if this parse ultimately fails.
+      await saveRawText(supabase, uploadId, rawTextForLLM);
       payload = await parseWithLLM(rawTextForLLM);
     } catch (e) {
       if (

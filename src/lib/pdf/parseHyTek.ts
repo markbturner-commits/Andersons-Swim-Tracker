@@ -31,41 +31,54 @@ import { PdfFormatUnrecognized, PdfTextExtractionEmpty } from "./errors";
 
 // ---------- regexes ----------
 
-// "Event 15  Boys 9-10 50 Yard Freestyle"
-// "Event 1   Girls 8 & Under 25 Yard Freestyle"
-// "Event 3   Mixed 9-10 100 Yard Medley Relay"
-// Age group can include digits, ranges, "& Under", "& Over", "Open", "Senior", etc.
+// Two Hy-Tek header dialects are supported:
+//   Championship-style:  "Event 15  Boys 9-10 50 Yard Freestyle"
+//   Dual-meet-style:     "#15 Boys 9-10 50 Yard Free"
+// The dual-meet exports (e.g. DYC vs Weymouth Blue Sharks) prefix the event
+// number with "#" and abbreviate stroke names (Free/Back/Breast/Fly), so both
+// the "Event N"/"#N" prefix and the long/short stroke spellings must match.
+//
+// Age group can include digits, ranges, "& Under", "8&U", "& Over", "Open", etc.
+// Stroke alternation is ordered longest-first so "Free Relay" wins over "Free"
+// and "Freestyle" wins over "Free" (the trailing \b alone isn't enough when a
+// shorter alternative is also a valid word boundary, e.g. "Free" in "Free Relay").
 const SECTION_RE =
-  /^\s*Event\s+(\d+)\s+(Boys|Girls|Women|Men|Mixed)\s+([\d&\s\-+A-Za-z]+?)\s+(\d+)\s+(Yard|Meter)\s+(Freestyle|Backstroke|Breaststroke|Butterfly|IM|Individual\s+Medley|Medley\s+Relay|Freestyle\s+Relay)\b/i;
+  /^\s*(?:Event\s+|#)(\d+)\s+(Boys|Girls|Women|Men|Mixed)\s+([\d&\s\-+A-Za-z]+?)\s+(\d+)\s+(Yard|Meter)\s+(Medley\s+Relay|Freestyle\s+Relay|Free\s+Relay|Freestyle|Backstroke|Breaststroke|Butterfly|Individual\s+Medley|Free|Back|Breast|Fly|IM)\b/i;
 
 // Individual result line:
 // "2  Turner, Anderson  9  AQUA  44.56  3"
 // "1  Smith, Jane  10  HOME  x1:02.34"
+// "*8  Nahmias, Sienna  10  DYC  x25.50"  (leading "*" marks a tied place)
 // "---  Doe, John  10  AQUA  DQ"  (we ignore DQ rows — no time)
 const RESULT_RE =
-  /^\s*(\d+|---)\s+([A-Z][\w'\-]+,\s+[A-Z][\w'\-\s.]+?)\s+(\d{1,2})\s+([A-Z][A-Z0-9\-]*)\s+(x|X)?((?:\d{1,2}:)?\d{1,2}\.\d{2})(?:\s+(\d+))?\s*$/;
+  /^\s*\*?(\d+|---)\s+([A-Z][\w'\-]+,\s+[A-Z][\w'\-\s.]+?)\s+(\d{1,2})\s+([A-Z][A-Z0-9\-]*)\s+(x|X)?((?:\d{1,2}:)?\d{1,2}\.\d{2})(?:\s+(\d+))?\s*$/;
 
 // Relay finals row:
 // "1  AQUA  A  2:15.43  10"   (place team relay-letter time [points])
 // "2  HOME 'B'  2:18.99"
+// "2  DYC B  x1:48.63"        (leading "x" on the time marks an exhibition relay)
 const RELAY_RESULT_RE =
-  /^\s*(\d+|---)\s+([A-Z][A-Z0-9\-]*)\s+['"]?([A-D])['"]?\s+((?:\d{1,2}:)?\d{1,2}\.\d{2})(?:\s+(\d+))?\s*$/;
+  /^\s*\*?(\d+|---)\s+([A-Z][A-Z0-9\-]*)\s+['"]?([A-D])['"]?\s+(x|X)?((?:\d{1,2}:)?\d{1,2}\.\d{2})(?:\s+(\d+))?\s*$/;
 
-// Relay swimmer indented row:
-// "1) Turner, Anderson 9   2) Smith, Jane 10"
-// "3) Doe, John 9         4) Roe, Jane 10"
+// Relay swimmer indented row. Two dialects:
+//   Numbered:   "1) Turner, Anderson 9   2) Smith, Jane 10"
+//   Unnumbered: "Turner, Anderson 9   Collingwood, Matias 10"  (dual-meet exports)
+// The "N)" lead-in is optional so both forms are captured.
 const RELAY_SWIMMER_RE =
-  /(\d)\)\s+([A-Z][\w'\-]+,\s+[A-Z][\w'\-\s.]+?)\s+(\d{1,2})\b/g;
+  /(?:\d\)\s+)?([A-Z][\w'\-]+,\s+[A-Z][\w'\-\s.]+?)\s+(\d{1,2})\b/g;
 
-// "Results - Sailfish vs Aquadux 2/8/26"  → captures the meet name + date
-const RESULTS_HEADER_RE = /^Results\s*-\s*(.+?)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s*$/;
+// "Results - Sailfish vs Aquadux 2/8/26"  → captures the meet name + optional date.
+// Dual-meet exports drop the trailing m/d/yy ("Results - DYC vs Blue Sharks 2026"),
+// so the date group is optional and callers must null-check it.
+const RESULTS_HEADER_RE = /^Results\s*-\s*(.+?)(?:\s+(\d{1,2}\/\d{1,2}\/\d{2,4}))?\s*$/;
 
 // "Sailfish vs Aquadux 2.8.26"  → an alternate header form with dot-separated date
 const TITLE_DATE_RE = /^(.+?)\s+(\d{1,2}\.\d{1,2}\.\d{2,4})\s*$/;
 
-// Anything that *looks* like a result row (starts with place or "---") — used for
-// the coverage denominator. We only need the rough shape, not full validity.
-const CANDIDATE_RESULT_RE = /^\s*(?:\d+|---)\s+\S/;
+// Anything that *looks* like a result row (starts with place, "*place", or "---")
+// — used for the coverage denominator. We only need the rough shape, not full
+// validity.
+const CANDIDATE_RESULT_RE = /^\s*\*?(?:\d+|---)\s+\S/;
 
 // ---------- stroke + course mapping ----------
 
@@ -146,12 +159,21 @@ export async function parseHyTek(buffer: Buffer): Promise<ParseHyTekResult> {
   return result;
 }
 
-// ---------- text extraction with 2-column re-ordering ----------
+// ---------- text extraction with multi-column re-ordering ----------
+
+// Two sorted column left-margins closer than this are treated as the same
+// column. Hy-Tek columns sit ~190pt apart, while the token indents *within* a
+// column (place number vs. name vs. relay-swimmer indent) vary by ≤ ~40pt, so
+// 80pt cleanly separates real columns from intra-column jitter.
+const COLUMN_GAP = 80;
 
 /**
- * Run pdf-parse with a custom pagerender that detects 2-column layouts via
- * x-coordinate clustering and emits the left column's text before the right's.
- * Falls back to default rendering if a page has only one column.
+ * Run pdf-parse with a custom pagerender that detects how many columns a page
+ * uses (1, 2, or 3) by clustering the per-row left edges, then emits each
+ * column top-to-bottom in left-to-right order. Dual-meet Hy-Tek exports lay
+ * results out in three columns; a fixed midpoint split mangles them (adjacent
+ * columns' rows share a y and were being merged into one line). Falls back to
+ * default rendering if the custom render throws.
  */
 async function extractTextTwoColumn(buffer: Buffer): Promise<string> {
   // Dynamic import — pdf-parse is CJS and Node-only; keeping it out of the
@@ -191,18 +213,6 @@ async function extractTextTwoColumn(buffer: Buffer): Promise<string> {
       str: it.str,
     }));
 
-    // Detect 2-column layout: cluster x-positions. If items split cleanly into
-    // a left and right cluster, the page is 2-column; otherwise treat as 1.
-    const xs = items.map((i) => i.x).sort((a, b) => a - b);
-    const minX = xs[0] ?? 0;
-    const maxX = xs[xs.length - 1] ?? 0;
-    const midX = (minX + maxX) / 2;
-
-    // 2-column heuristic: a meaningful gap between left & right item densities.
-    const leftCount = items.filter((i) => i.x < midX).length;
-    const rightCount = items.length - leftCount;
-    const twoCols = leftCount > items.length * 0.2 && rightCount > items.length * 0.2 && (maxX - minX) > 200;
-
     const linesFromItems = (group: Positioned[]): string => {
       // Group by y (rounded to int) → each line is items sharing a y bucket.
       const byY = new Map<number, Positioned[]>();
@@ -219,12 +229,46 @@ async function extractTextTwoColumn(buffer: Buffer): Promise<string> {
       return lines.join("\n");
     };
 
-    if (twoCols) {
-      const left = items.filter((i) => i.x < midX);
-      const right = items.filter((i) => i.x >= midX);
-      return [linesFromItems(left), linesFromItems(right)].filter(Boolean).join("\n");
+    // Detect the column layout: cluster the *left edge* of each y-row. Result
+    // rows in every column start at that column's left margin, so the distinct
+    // margins reveal the column count regardless of how wide each column's
+    // content runs. (Clustering every item's x instead would smear together —
+    // a column spans a range of x, not a single value.)
+    const rowLeftEdge = new Map<number, number>();
+    for (const it of items) {
+      const key = Math.round(it.y);
+      const cur = rowLeftEdge.get(key);
+      if (cur === undefined || it.x < cur) rowLeftEdge.set(key, it.x);
     }
-    return linesFromItems(items);
+    const sortedEdges = [...rowLeftEdge.values()].sort((a, b) => a - b);
+
+    // Column margins = the minimum of each left-edge cluster.
+    const margins: number[] = [];
+    let prev: number | null = null;
+    for (const e of sortedEdges) {
+      if (prev === null || e - prev > COLUMN_GAP) margins.push(e);
+      prev = e;
+    }
+
+    // Single column (or no items) → plain top-to-bottom rendering.
+    if (margins.length <= 1) return linesFromItems(items);
+
+    // Multi-column: assign each item to the column whose margin is the largest
+    // one still ≤ its x. Single-item title/header lines (the meet name sits in
+    // one text run) stay whole — they land in whichever column their x falls
+    // in, and the meet-name scan in parseHyTekText searches every line, not
+    // just the first column's.
+    const colOf = (x: number): number => {
+      let idx = 0;
+      for (let c = 0; c < margins.length; c++) {
+        if (x >= margins[c] - 1) idx = c;
+        else break;
+      }
+      return idx;
+    };
+    const columns: Positioned[][] = margins.map(() => []);
+    for (const it of items) columns[colOf(it.x)].push(it);
+    return columns.map(linesFromItems).filter(Boolean).join("\n");
   };
 
   try {
@@ -251,14 +295,22 @@ export function parseHyTekText(rawText: string): ParseHyTekResult {
   let meetDate: string | null = null;
   let inferredCourse: Course = "SCY"; // refined as we see "Yard" / "Meter" events
 
-  for (let i = 0; i < lines.length && i < 50; i++) {
+  // Scan every line for the "Results - <name> <date?>" header. Only genuine
+  // header lines start with "Results", so first-match-wins is safe — and we
+  // can't cap the scan at the first 50 lines: in a multi-column layout the
+  // header can land in the second/third column, well past line 50.
+  for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
     const r = line.match(RESULTS_HEADER_RE);
     if (r) {
       meetName = r[1].trim();
-      const d = parseDateLoose(r[2]);
-      if (d) meetDate = d;
+      // The date group is optional in the dual-meet dialect — only parse it
+      // when the "Results -" line actually carried an m/d/yy suffix.
+      if (r[2]) {
+        const d = parseDateLoose(r[2]);
+        if (d) meetDate = d;
+      }
       break;
     }
   }
@@ -275,10 +327,11 @@ export function parseHyTekText(rawText: string): ParseHyTekResult {
         if (d) meetDate = d;
         break;
       }
-      // first non-noise line is probably the meet name
-      if (line.length > 3 && /^[A-Z]/.test(line)) {
+      // First non-noise line is probably the meet name. Take the first one
+      // only (don't overwrite with later uppercase lines like "Team" or a
+      // swimmer's surname), then keep scanning for a date to attach.
+      if (!meetName && line.length > 3 && /^[A-Z]/.test(line)) {
         meetName = line;
-        // keep scanning for the date below
       }
     }
   }
@@ -336,7 +389,8 @@ export function parseHyTekText(rawText: string): ParseHyTekResult {
       // Relay finals row, then read the next non-empty line(s) for 4 swimmer names.
       const relayM = trimmed.match(RELAY_RESULT_RE);
       if (!relayM) continue;
-      const [, placeStr, team, , timeStr] = relayM;
+      // Groups: 1 place, 2 team, 3 relay-letter, 4 exhibition flag, 5 time.
+      const [, placeStr, team, , , timeStr] = relayM;
       const place = placeStr === "---" ? null : parseInt(placeStr, 10);
       const timeMs = parseTime(timeStr);
       if (isNaN(timeMs)) continue;
@@ -353,7 +407,10 @@ export function parseHyTekText(rawText: string): ParseHyTekResult {
         let mm: RegExpExecArray | null;
         RELAY_SWIMMER_RE.lastIndex = 0;
         while ((mm = RELAY_SWIMMER_RE.exec(next))) {
-          relaySwimmers.push({ name: mm[2].replace(/\s+/g, " ").trim(), age: parseInt(mm[3], 10) });
+          // Groups: 1 name ("Last, First"), 2 age. The "N)" lead-in is a
+          // non-capturing optional, so the name/age indices are stable across
+          // the numbered and unnumbered dialects.
+          relaySwimmers.push({ name: mm[1].replace(/\s+/g, " ").trim(), age: parseInt(mm[2], 10) });
         }
         if (relaySwimmers.length >= 4) break;
       }
