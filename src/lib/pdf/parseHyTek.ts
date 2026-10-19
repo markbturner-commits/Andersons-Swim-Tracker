@@ -50,15 +50,16 @@ const SECTION_RE =
 // "1  Smith, Jane  10  HOME  x1:02.34"
 // "*8  Nahmias, Sienna  10  DYC  x25.50"  (leading "*" marks a tied place)
 // "---  Doe, John  10  AQUA  DQ"  (we ignore DQ rows — no time)
+// Team codes may be mixed case ("Aquadux", "Sailfish-NE"), not just "AQUA".
 const RESULT_RE =
-  /^\s*\*?(\d+|---)\s+([A-Z][\w'\-]+,\s+[A-Z][\w'\-\s.]+?)\s+(\d{1,2})\s+([A-Z][A-Z0-9\-]*)\s+(x|X)?((?:\d{1,2}:)?\d{1,2}\.\d{2})(?:\s+(\d+))?\s*$/;
+  /^\s*\*?(\d+|---)\s+([A-Z][\w'\-]+,\s+[A-Z][\w'\-\s.]+?)\s+(\d{1,2})\s+([A-Z][A-Za-z0-9\-]*)\s+(x|X)?((?:\d{1,2}:)?\d{1,2}\.\d{2})(?:\s+(\d+))?\s*$/;
 
 // Relay finals row:
 // "1  AQUA  A  2:15.43  10"   (place team relay-letter time [points])
 // "2  HOME 'B'  2:18.99"
 // "2  DYC B  x1:48.63"        (leading "x" on the time marks an exhibition relay)
 const RELAY_RESULT_RE =
-  /^\s*\*?(\d+|---)\s+([A-Z][A-Z0-9\-]*)\s+['"]?([A-D])['"]?\s+(x|X)?((?:\d{1,2}:)?\d{1,2}\.\d{2})(?:\s+(\d+))?\s*$/;
+  /^\s*\*?(\d+|---)\s+([A-Z][A-Za-z0-9\-]*)\s+['"]?([A-D])['"]?\s+(x|X)?((?:\d{1,2}:)?\d{1,2}\.\d{2})(?:\s+(\d+))?\s*$/;
 
 // Relay swimmer indented row. Two dialects:
 //   Numbered:   "1) Turner, Anderson 9   2) Smith, Jane 10"
@@ -167,6 +168,36 @@ export async function parseHyTek(buffer: Buffer): Promise<ParseHyTekResult> {
 // 80pt cleanly separates real columns from intra-column jitter.
 const COLUMN_GAP = 80;
 
+// An event header ("Event 7  Boys ...", "#7 Boys ...") or a column-top
+// continuation line ("(Event 11  Boys ...") always starts flush at its
+// column's left margin, so header x positions are the most reliable column
+// signal. Matched against individual PDF.js text items, not joined lines.
+const HEADER_START_RE = /^\s*\(?(?:Event\s+\d+|#\d+)\s/;
+
+/**
+ * Collapse sorted-or-unsorted x positions into column margins: positions
+ * within COLUMN_GAP of the previous one belong to the same column, and each
+ * cluster is represented by its minimum.
+ */
+export function clusterMargins(xs: number[]): number[] {
+  const margins: number[] = [];
+  let prev: number | null = null;
+  for (const x of [...xs].sort((a, b) => a - b)) {
+    if (prev === null || x - prev > COLUMN_GAP) margins.push(x);
+    prev = x;
+  }
+  return margins;
+}
+
+/**
+ * Column margins for a whole document, taken from where event headers start.
+ * Returns [] when the document has no recognizable headers (caller falls back
+ * to per-page row-edge detection).
+ */
+export function headerMargins(items: Array<{ x: number; str: string }>): number[] {
+  return clusterMargins(items.filter((it) => HEADER_START_RE.test(it.str)).map((it) => it.x));
+}
+
 /**
  * Run pdf-parse with a custom pagerender that detects how many columns a page
  * uses (1, 2, or 3) by clustering the per-row left edges, then emits each
@@ -197,6 +228,31 @@ async function extractTextTwoColumn(buffer: Buffer): Promise<string> {
   interface PageProxy {
     getTextContent(opts?: { normalizeWhitespace?: boolean; disableCombineTextItems?: boolean }): Promise<TextContent>;
   }
+
+  // First pass: collect every event-header position in the document. The
+  // per-page row-edge heuristic below is fooled by centered single-run title
+  // lines (the meet name at x≈222 became a phantom column that split every
+  // finals time off its swimmer row), and it can't see a right-hand column
+  // whose rows share y-coordinates with the left column. Header positions
+  // have neither problem. Pooling across pages also covers a column that has
+  // no header of its own (e.g. a team-scores block on the last page).
+  const headerXs: Array<{ x: number; str: string }> = [];
+  const collectHeaders = async (pageData: PageProxy): Promise<string> => {
+    const content = await pageData.getTextContent({
+      normalizeWhitespace: false,
+      disableCombineTextItems: false,
+    });
+    for (const it of content.items ?? []) {
+      headerXs.push({ x: it.transform[4], str: it.str });
+    }
+    return "";
+  };
+  try {
+    await pdfParse(buffer, { pagerender: collectHeaders as (p: unknown) => Promise<string> });
+  } catch {
+    // Non-fatal: fall back to per-page detection below.
+  }
+  const docMargins = headerMargins(headerXs);
 
   const renderPage = async (pageData: PageProxy): Promise<string> => {
     const content = await pageData.getTextContent({
@@ -229,25 +285,22 @@ async function extractTextTwoColumn(buffer: Buffer): Promise<string> {
       return lines.join("\n");
     };
 
-    // Detect the column layout: cluster the *left edge* of each y-row. Result
-    // rows in every column start at that column's left margin, so the distinct
+    // Column layout: prefer the document-wide header margins. Without headers,
+    // fall back to clustering the *left edge* of each y-row. Result rows in
+    // every column start at that column's left margin, so the distinct
     // margins reveal the column count regardless of how wide each column's
     // content runs. (Clustering every item's x instead would smear together —
     // a column spans a range of x, not a single value.)
-    const rowLeftEdge = new Map<number, number>();
-    for (const it of items) {
-      const key = Math.round(it.y);
-      const cur = rowLeftEdge.get(key);
-      if (cur === undefined || it.x < cur) rowLeftEdge.set(key, it.x);
-    }
-    const sortedEdges = [...rowLeftEdge.values()].sort((a, b) => a - b);
-
-    // Column margins = the minimum of each left-edge cluster.
-    const margins: number[] = [];
-    let prev: number | null = null;
-    for (const e of sortedEdges) {
-      if (prev === null || e - prev > COLUMN_GAP) margins.push(e);
-      prev = e;
+    let margins = docMargins;
+    if (margins.length === 0) {
+      const rowLeftEdge = new Map<number, number>();
+      for (const it of items) {
+        const key = Math.round(it.y);
+        const cur = rowLeftEdge.get(key);
+        if (cur === undefined || it.x < cur) rowLeftEdge.set(key, it.x);
+      }
+      // Column margins = the minimum of each left-edge cluster.
+      margins = clusterMargins([...rowLeftEdge.values()]);
     }
 
     // Single column (or no items) → plain top-to-bottom rendering.
@@ -312,6 +365,22 @@ export function parseHyTekText(rawText: string): ParseHyTekResult {
         if (d) meetDate = d;
       }
       break;
+    }
+  }
+  if (meetName && !meetDate) {
+    // "Results - Sailfish vs Aquadux" carried no date, but the title line
+    // usually does: "Sailfish vs Aquadux 10.18.26 - 10/18/2026". Take the first
+    // date on a non-banner line that mentions the meet name (the HY-TEK banner
+    // carries the export timestamp, which can differ from the meet date).
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line.includes(meetName) || /HY-TEK|MEET MANAGER/i.test(line)) continue;
+      const dm = line.match(/\b(\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4})\b/);
+      const d = dm ? parseDateLoose(dm[1]) : null;
+      if (d) {
+        meetDate = d;
+        break;
+      }
     }
   }
   if (!meetName) {

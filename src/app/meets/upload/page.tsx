@@ -8,7 +8,7 @@
 //  2. "Awaiting confirmation" — server-rendered list of the user's
 //     pdf_uploads rows that are pending / parsed / failed. Persists across
 //     sessions, so an interrupted batch upload is recoverable without
-//     re-uploading.
+//     re-uploading. Every row has a Cancel action to discard it.
 //  3. The drag-and-drop dropzone for new uploads (client component).
 //
 // `dynamic = "force-dynamic"` because the pending list reflects per-user,
@@ -18,6 +18,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { listPendingUploads, type PendingUploadRow } from "@/lib/queries/pdf";
+import { CancelButton } from "./cancel-button";
 import { RetryButton } from "./retry-button";
 import { UploadDropzone } from "./upload-dropzone";
 
@@ -152,6 +153,7 @@ function PendingRow({ row }: { row: PendingUploadRow }) {
             </Link>
           </>
         )}
+        <CancelButton uploadId={row.id} />
       </div>
     </li>
   );
